@@ -100,13 +100,46 @@ def register_handlers(bot):
                 # Eksekusi market order penutupan kebalikannya
                 side = "SELL" if position_amt > 0 else "BUY"
                 qty = abs(position_amt)
+                res = client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty, reduceOnly=True)
+                close_order_id = res['orderId']
                 
-                client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty, reduceOnly=True)
                 client.futures_cancel_all_open_orders(symbol=symbol)
                 try: client.futures_cancel_all_algo_open_orders(symbol=symbol)
                 except Exception: pass
                 
-                bot.reply_to(message, f"✅ Posisi *{symbol}* berhasil ditutup dan semua sisa order dibatalkan.", parse_mode="Markdown")
+                # Beri jeda 500ms agar engine Binance memperbarui riwayat trade
+                time.sleep(0.5)
+                
+                # Ambil detail eksekusi trade penutupan
+                fill_price = 0.0
+                realized_pnl = 0.0
+                fee = 0.0
+                try:
+                    trades = client.futures_account_trades(symbol=symbol, limit=10)
+                    matching_trades = [t for t in trades if t['orderId'] == close_order_id]
+                    if matching_trades:
+                        total_qty = sum(float(t['qty']) for t in matching_trades)
+                        weighted_price_sum = sum(float(t['price']) * float(t['qty']) for t in matching_trades)
+                        fill_price = weighted_price_sum / total_qty if total_qty > 0 else float(matching_trades[0]['price'])
+                        realized_pnl = sum(float(t['realizedPnl']) for t in matching_trades)
+                        fee = sum(float(t['commission']) for t in matching_trades)
+                except Exception as err:
+                    print(f"[WARN] Gagal mengambil detail close trade: {err}")
+                
+                emoji_pnl = "📈" if realized_pnl >= 0 else "📉"
+                pnl_str = f"{realized_pnl:+.4f} USDT" if realized_pnl != 0 else "0.00 USDT"
+                
+                msg_close = (
+                    f"✅ *Berhasil Menutup Posisi {symbol}*\n\n"
+                    f"📊 *Rincian Penutupan:*\n"
+                    f"• Tipe: `MARKET {side}`\n"
+                    f"• Size: `{qty}`\n"
+                    f"• Close Price: `{fill_price:.4f}`\n"
+                    f"• {emoji_pnl} Realized PnL: `{pnl_str}`\n"
+                    f"• Fee Komisi: `{fee:.4f} USDT`\n\n"
+                    f"🛡️ Semua pending orders (termasuk stop loss) berhasil dibersihkan."
+                )
+                bot.reply_to(message, msg_close, parse_mode="Markdown")
             except Exception as e:
                 bot.reply_to(message, f"❌ Gagal menutup posisi {symbol}: {e}")
             return

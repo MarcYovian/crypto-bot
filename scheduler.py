@@ -53,9 +53,16 @@ def cron_check_pending_orders():
             
             # Jika posisi > 0 (artinya limit order baru saja terisi/filled)
             elif abs(position_amt) > 0:
-                # Periksa apakah sudah ada Stop Loss aktif
-                open_orders = client.futures_get_open_orders(symbol=symbol)
-                has_sl_order = any(o['type'] == 'STOP_MARKET' for o in open_orders)
+                # Periksa apakah sudah ada Stop Loss aktif (cek open orders reguler & open algo orders)
+                has_sl_order = False
+                try:
+                    open_orders = client.futures_get_open_orders(symbol=symbol)
+                    has_sl_order = any(o['type'] == 'STOP_MARKET' for o in open_orders)
+                    if not has_sl_order:
+                        open_algos = client.futures_get_open_algo_orders(symbol=symbol)
+                        has_sl_order = any(algo['orderType'] == 'STOP_MARKET' for algo in open_algos)
+                except Exception as err:
+                    print(f"[WARN] Gagal mengecek open SL orders untuk {symbol}: {err}")
                 
                 if not has_sl_order:
                     print(f"[{symbol}] Limit order TERISI! Mengaktifkan Stop Loss & Limit TP...")
