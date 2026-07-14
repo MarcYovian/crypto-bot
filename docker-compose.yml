@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  crypto-bot:
+    build: .
+    container_name: crypto-bot
+    restart: unless-stopped
+    volumes:
+      # Mount database SQLite agar data transaksi tetap aman saat container di-restart
+      - ./trading_bot.db:/app/trading_bot.db
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BINANCE_API_KEY=${BINANCE_API_KEY}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ALLOWED_USER_ID=${ALLOWED_USER_ID}
+      - BINANCE_TESTNET=${BINANCE_TESTNET}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from config import client; client.futures_ping()"]
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
