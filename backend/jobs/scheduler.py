@@ -200,8 +200,10 @@ def cron_monitor_active_positions():
                 try:
                     order = client.futures_get_order(symbol=symbol, orderId=tp1_order_id)
                     if order['status'] == 'FILLED':
-                        # Batalkan SL sebelumnya
+                        # Batalkan SL sebelumnya di Binance (mencegah error code=-4130)
                         if sl_order_id:
+                            try: client.futures_cancel_order(symbol=symbol, orderId=sl_order_id)
+                            except Exception: pass
                             try: client.futures_cancel_algo_order(symbol=symbol, algoId=sl_order_id)
                             except Exception: pass
                         
