@@ -572,4 +572,20 @@ def cron_check_margin_level():
                     parse_mode="Markdown"
                 )
     except Exception as e:
-        print(f"[CRON MARGIN ERROR] Gagal memeriksa tingkat margin: {e}")
+        print(f"[CRON MARGIN ERROR] Gagal memeriksa margin level: {e}")
+
+def cron_reset_daily_anchor_balance():
+    """Meng-update daily_anchor_balance di database bot_config ke Total Account Equity saat jam 00:00 WIB."""
+    print("[CRON ANCHOR] Memperbarui Daily Anchor Balance harian...")
+    try:
+        from backend.db.repository import set_config
+        account_info = client.futures_account()
+        avail_balance = float([a['availableBalance'] for a in account_info['assets'] if a['asset'] == 'USDT'][0])
+        pos_info = client.futures_position_information()
+        total_initial_margin = sum(abs(float(p['positionAmt'])) * float(p['entryPrice']) / 15.0 for p in pos_info if float(p['positionAmt']) != 0)
+        total_equity = avail_balance + total_initial_margin
+        
+        set_config("daily_anchor_balance", total_equity)
+        logger.info(f"[CRON ANCHOR] Daily Anchor Balance di-reset ke Total Equity terkini: ${total_equity:.2f} USDT")
+    except Exception as e:
+        logger.error(f"[CRON ANCHOR ERROR] Gagal me-reset daily anchor balance: {e}")

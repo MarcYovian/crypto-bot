@@ -11,7 +11,8 @@ from backend.jobs.scheduler import (
     cron_send_daily_report,
     cron_db_housekeeping,
     cron_check_api_health,
-    cron_check_margin_level
+    cron_check_margin_level,
+    cron_reset_daily_anchor_balance
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -27,10 +28,12 @@ if __name__ == "__main__":
     try:
         bot.set_my_commands([
             types.BotCommand("status", "Melihat seluruh posisi aktif di Binance Futures"),
+            types.BotCommand("risk", "Melihat & mengatur konfigurasi manajemen risiko & Daily Anchor"),
             types.BotCommand("summary", "Melihat rekapitulasi performa trading & Net PnL (PRD-V2)"),
             types.BotCommand("history", "Melihat 5 riwayat trade terakhir yang sudah ditutup"),
             types.BotCommand("close", "Menutup paksa posisi. (Contoh: /close BTCUSDT)"),
-            types.BotCommand("cancel", "Membatalkan open orders koin. (Contoh: /cancel BTCUSDT)")
+            types.BotCommand("cancel", "Membatalkan open orders koin. (Contoh: /cancel BTCUSDT)"),
+            types.BotCommand("reset_anchor", "Reset saldo acuan harian (Daily Anchor) ke Total Equity saat ini")
         ])
         logger.info("Menu Perintah Telegram berhasil didaftarkan.")
     except Exception as e:
@@ -57,7 +60,7 @@ if __name__ == "__main__":
     # 4. Cek limit order pending yang kedaluwarsa (>4 jam) setiap 5 menit
     scheduler.add_job(cron_cancel_expired_orders, 'interval', minutes=5)
     
-    # 5. Kirim laporan performa harian setiap hari pukul 23:59 WIB/UTC (sesuai jam sistem)
+    # 5. Kirim laporan performa harian setiap hari pukul 23:59 WIB/UTC
     scheduler.add_job(cron_send_daily_report, 'cron', hour=23, minute=59)
     
     # 6. Pembersihan database mingguan setiap hari Minggu pukul 00:00
@@ -68,6 +71,9 @@ if __name__ == "__main__":
     
     # 8. Memeriksa tingkat ketersediaan free margin setiap 10 menit
     scheduler.add_job(cron_check_margin_level, 'interval', minutes=10)
+    
+    # 9. Reset Daily Anchor Balance ke Total Equity dompet terkini setiap jam 00:00 WIB/UTC
+    scheduler.add_job(cron_reset_daily_anchor_balance, 'cron', hour=0, minute=0)
     
     scheduler.start()
     

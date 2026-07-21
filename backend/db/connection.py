@@ -84,6 +84,22 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
 
+    # 5. TABEL KONFIGURASI DINAMIS BOT (bot_config)
+    c.execute('''CREATE TABLE IF NOT EXISTS bot_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )''')
+
+    # Seed default config jika belum ada
+    default_configs = [
+        ("risk_mode", "DAILY_ANCHOR"),
+        ("risk_pct", "0.02"),
+        ("daily_anchor_balance", "0.0")
+    ]
+    for k, v in default_configs:
+        c.execute("INSERT OR IGNORE INTO bot_config (key, value) VALUES (?, ?)", (k, v))
+
     # Auto-migration jika tabel lama sudah ada
     migrations = [
         ("active_trades", "entry_price", "REAL DEFAULT 0.0"),

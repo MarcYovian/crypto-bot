@@ -2,7 +2,7 @@ import time
 from backend.config import ALLOWED_USER_ID, client, FIXED_LEVERAGE
 from backend.services.binance_rest import execute_trade
 from backend.bot.parser import parse_signal
-from backend.db.repository import get_active_trades, get_performance_summary, get_trade_history, finalize_trade
+from backend.db.repository import get_active_trades, get_performance_summary, get_trade_history, finalize_trade, get_config, set_config, get_all_configs
 from backend.logger import logger
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -209,11 +209,98 @@ def register_handlers(bot):
                 bot.reply_to(message, f"❌ Gagal membatalkan order {symbol}: {e}")
             return
 
-        # Helper function untuk memproses eksekusi trade dan menangani batasan quantity
+        # 4. Perintah interaktif: Manajemen Risiko & Daily Anchor Balance (/risk, /set_risk, /reset_anchor)
+        elif text.startswith("/risk") or text.startswith("/reset_anchor") or text.startswith("/set_risk"):
+            try:
+                if text.startswith("/reset_anchor"):
+                    # Reset Daily Anchor Balance manual ke Total Account Equity saat ini
+                    account_info = client.futures_account()
+                    avail_balance = float([a['availableBalance'] for a in account_info['assets'] if a['asset'] == 'USDT'][0])
+                    pos_info = client.futures_position_information()
+                    total_initial_margin = sum(abs(float(p['positionAmt'])) * float(p['entryPrice']) / 15.0 for p in pos_info if float(p['positionAmt']) != 0)
+                    total_equity = avail_balance + total_initial_margin
+                    
+                    set_config("daily_anchor_balance", total_equity)
+                    bot.reply_to(message, f"🔄 *Daily Anchor Balance Berhasil Di-reset!*\n\nAcuan saldo harian baru: `${total_equity:.2f} USDT`", parse_mode="Markdown")
+                    return
+
+                elif text.startswith("/set_risk"):
+                    parts = text.split()
+                    if len(parts) < 2:
+                        bot.reply_to(message, "⚠️ Format salah.\nGunakan: `/set_risk [PERSEN]` (Contoh: `/set_risk 2.0` untuk 2%)\nAtau: `/set_risk fixed [USD]` (Contoh: `/set_risk fixed 2.5` untuk $2.5)", parse_mode="Markdown")
+                        return
+                    if parts[1].lower() == "fixed" and len(parts) >= 3:
+                        val = float(parts[2])
+                        set_config("risk_mode", "FIXED_USD")
+                        set_config("fixed_risk_usd", val)
+                        bot.reply_to(message, f"✅ Mode risiko diubah ke *FIXED USD*: `${val:.2f} USDT` per trade.", parse_mode="Markdown")
+                    else:
+                        pct = float(parts[1]) / 100.0
+                        set_config("risk_mode", "DAILY_ANCHOR")
+                        set_config("risk_pct", pct)
+                        bot.reply_to(message, f"✅ Mode risiko diubah ke *DAILY ANCHOR*: `{float(parts[1]):.1f}%` per trade.", parse_mode="Markdown")
+                    return
+
+                # Default /risk: Tampilkan info status risiko
+                configs = get_all_configs()
+                mode = configs.get("risk_mode", "DAILY_ANCHOR")
+                pct = float(configs.get("risk_pct", "0.02")) * 100
+                anchor = float(configs.get("daily_anchor_balance", "0.0"))
+                fixed_val = configs.get("fixed_risk_usd", "2.0")
+                
+                account_info = client.futures_account()
+                avail_balance = float([a['availableBalance'] for a in account_info['assets'] if a['asset'] == 'USDT'][0])
+                pos_info = client.futures_position_information()
+                total_initial_margin = sum(abs(float(p['positionAmt'])) * float(p['entryPrice']) / 15.0 for p in pos_info if float(p['positionAmt']) != 0)
+                total_equity = avail_balance + total_initial_margin
+
+                msg_risk = (
+                    f"⚙️ *KONFIGURASI MANAJEMEN RISIKO BOT:*\n\n"
+                    f"• Mode Risiko: `{mode}`\n"
+                    f"• Target Risiko: `{pct:.1f}%` per trade" + (f" (Fixed `${fixed_val}`)" if mode == "FIXED_USD" else "") + "\n"
+                    f"• Daily Anchor Balance: `${anchor:.2f} USDT`\n"
+                    f"• Available Free Margin: `${avail_balance:.2f} USDT`\n"
+                    f"• Total Wallet Equity: `${total_equity:.2f} USDT`\n\n"
+                    f"💡 *Perintah Pengaturan:*\n"
+                    f"• `/set_risk 2.0` -> Ubah % risiko harian\n"
+                    f"• `/set_risk fixed 2.5` -> Ubah nominal fixed USD\n"
+                    f"• `/reset_anchor` -> Reset saldo jangkar ke Equity terkini (`${total_equity:.2f}`)"
+                )
+                bot.reply_to(message, msg_risk, parse_mode="Markdown")
+            except Exception as err:
+                logger.error(f"Gagal memproses command /risk: {err}", exc_info=True)
+                bot.reply_to(message, f"❌ Error: {err}")
+            return
+
+        # Helper function untuk memproses eksekusi trade dan menangani batasan quantity / margin
         def process_trade_execution(data, msg_target=message):
             result_msg = execute_trade(data)
             
-            if isinstance(result_msg, str) and (result_msg.startswith("QTY_UNDER_MIN:") or result_msg.startswith("QTY_OVER_MAX:")):
+            if isinstance(result_msg, str) and result_msg.startswith("MARGIN_EXCEEDS_AVAILABLE:"):
+                parts = result_msg.split(":")
+                req_margin = float(parts[1])
+                avail_bal = float(parts[2])
+                max_qty = float(parts[3])
+                
+                unique_id = str(int(time.time() * 1000))
+                data_copy = dict(data)
+                data_copy['override_qty'] = max_qty
+                PENDING_CONFIRMATIONS[unique_id] = data_copy
+                
+                markup = InlineKeyboardMarkup()
+                btn_yes = InlineKeyboardButton(f"✅ YES - Gunakan Sisa Saldo (${avail_bal:.2f})", callback_data=f"exec_qty_{unique_id}")
+                btn_no = InlineKeyboardButton("❌ NO - Batalkan Trade", callback_data=f"cancel_qty_{unique_id}")
+                markup.row(btn_yes)
+                markup.row(btn_no)
+                
+                alert_text = (
+                    f"⚠️ *PERINGATAN KECUKUPAN MARGIN (Binance)*\n\n"
+                    f"Margin yang dibutuhkan untuk *{data['symbol']}* (`${req_margin:.2f} USDT`) melebihi Saldo Bebas yang tersedia (`${avail_bal:.2f} USDT`).\n\n"
+                    f"Apakah Anda ingin menyesuaikan kuantitas dan menggunakan seluruh sisa saldo bebas (`${avail_bal:.2f} USDT`)?"
+                )
+                bot.reply_to(msg_target, alert_text, reply_markup=markup, parse_mode="Markdown")
+
+            elif isinstance(result_msg, str) and (result_msg.startswith("QTY_UNDER_MIN:") or result_msg.startswith("QTY_OVER_MAX:")):
                 parts = result_msg.split(":")
                 err_type = parts[0]
                 calculated_qty = float(parts[1])

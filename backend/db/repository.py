@@ -307,3 +307,52 @@ def update_watchlist_symbol(symbol, price, change_24h, ma50_distance_pct, rsi_14
         conn.close()
     except Exception as e:
         logger.error(f"Gagal meng-update watchlist scanner {symbol}: {e}", exc_info=True)
+
+# ========================================================
+# 5. OPERASI DYNAMIC CONFIGURATION (bot_config)
+# ========================================================
+
+def get_config(key, default=None):
+    """Mengambil nilai konfigurasi dari tabel bot_config."""
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute("SELECT value FROM bot_config WHERE key = ?", (key,))
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else default
+    except Exception as e:
+        logger.error(f"Gagal membaca config [{key}]: {e}")
+        return default
+
+def set_config(key, value):
+    """Menyimpan atau memperbarui nilai konfigurasi ke tabel bot_config."""
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute('''INSERT INTO bot_config (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value=excluded.value,
+                        updated_at=CURRENT_TIMESTAMP''', (key, str(value)))
+        conn.commit()
+        conn.close()
+        logger.info(f"Config diperbarui: {key} = {value}")
+        return True
+    except Exception as e:
+        logger.error(f"Gagal meng-update config [{key}={value}]: {e}")
+        return False
+
+def get_all_configs():
+    """Mengambil seluruh pasangan key-value konfigurasi dari bot_config."""
+    try:
+        conn = get_connection()
+        conn.row_factory = sqlite3_row_factory
+        c = conn.cursor()
+        c.execute("SELECT key, value, updated_at FROM bot_config")
+        rows = c.fetchall()
+        conn.close()
+        return {r['key']: r['value'] for r in rows}
+    except Exception as e:
+        logger.error(f"Gagal mengambil seluruh config: {e}")
+        return {}

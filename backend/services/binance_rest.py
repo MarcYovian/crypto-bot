@@ -154,6 +154,18 @@ def execute_trade(data):
         entry_price_rounded = round_step(data['entry'], tick_size)
         sl_price = round_step(data['sl'], tick_size)
         
+        # Pengecekan Kecukupan Margin Terkini vs Available Balance
+        if not data.get('override_qty'):
+            account_info = client.futures_account()
+            avail_balance = float([a['availableBalance'] for a in account_info['assets'] if a['asset'] == 'USDT'][0])
+            required_margin = (qty * entry_price_rounded) / FIXED_LEVERAGE
+            
+            if required_margin > avail_balance:
+                logger.warning(f"Margin [{symbol}] dibutuhkan (${required_margin:.2f}) > Avail Balance (${avail_balance:.2f}). Mengirim alert ke Telegram...")
+                # Hitung ulang Qty maksimal yang muat di sisa saldo bebas
+                max_possible_qty = round_step((avail_balance * FIXED_LEVERAGE) / entry_price_rounded, step_size)
+                return f"MARGIN_EXCEEDS_AVAILABLE:{required_margin:.2f}:{avail_balance:.2f}:{max_possible_qty}"
+        
         entry_order_id = None
         sl_order_id = None
         tp1_order_id = None
