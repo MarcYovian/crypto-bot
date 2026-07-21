@@ -96,7 +96,7 @@ def init_db():
         ("active_trades", "accumulated_realized_pnl", "REAL DEFAULT 0.0"),
         ("active_trades", "accumulated_commission", "REAL DEFAULT 0.0"),
         ("active_trades", "accumulated_funding", "REAL DEFAULT 0.0"),
-        ("active_trades", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        ("active_trades", "updated_at", "TIMESTAMP")
     ]
     for table, col, col_def in migrations:
         try:
