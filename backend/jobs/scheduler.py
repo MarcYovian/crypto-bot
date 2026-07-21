@@ -393,12 +393,16 @@ def cron_sync_closed_positions():
                     client.futures_cancel_all_open_orders(symbol=symbol)
                     try: client.futures_cancel_all_algo_open_orders(symbol=symbol)
                     except Exception: pass
-                    deactivate_trade(db_id)
                     
-                    bot.send_message(
-                        ALLOWED_USER_ID, 
-                        f"🏁 [{symbol}] Posisi telah ditutup. Semua sisa order berhasil dibersihkan."
-                    )
+                    # Cek keberhasilan deaktivasi database sebelum kirim pesan Telegram
+                    try:
+                        deactivate_trade(db_id)
+                        bot.send_message(
+                            ALLOWED_USER_ID, 
+                            f"🏁 [{symbol}] Posisi telah ditutup. Semua sisa order berhasil dibersihkan."
+                        )
+                    except Exception as db_err:
+                        logger.error(f"Gagal menonaktifkan trade ID {db_id} di DB: {db_err}")
         
         except Exception as e:
             logger.error(f"[CRON SYNC ERROR] Gagal mensinkronisasikan penutupan {symbol}: {e}")
