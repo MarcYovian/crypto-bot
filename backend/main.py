@@ -1,7 +1,9 @@
-from database import init_db
-from config import bot
-from handlers import register_handlers
-from scheduler import (
+from backend.db.connection import init_db
+from backend.config import bot
+from backend.bot.handlers.signal_handler import register_handlers
+from backend.services.binance_ws import ws_manager
+from backend.logger import logger
+from backend.jobs.scheduler import (
     cron_check_pending_orders,
     cron_monitor_active_positions,
     cron_sync_closed_positions,
@@ -14,10 +16,10 @@ from scheduler import (
 from apscheduler.schedulers.background import BackgroundScheduler
 
 if __name__ == "__main__":
-    print("Mempersiapkan Database...")
+    logger.info("Mempersiapkan Database...")
     init_db()
     
-    print("Menyiapkan Telegram Handlers...")
+    logger.info("Menyiapkan Telegram Handlers...")
     register_handlers(bot)
     
     # Daftarkan daftar perintah agar muncul sebagai tombol/menu di Telegram
@@ -25,25 +27,32 @@ if __name__ == "__main__":
     try:
         bot.set_my_commands([
             types.BotCommand("status", "Melihat seluruh posisi aktif di Binance Futures"),
-            types.BotCommand("positions", "Melihat seluruh posisi aktif di Binance Futures"),
+            types.BotCommand("summary", "Melihat rekapitulasi performa trading & Net PnL (PRD-V2)"),
+            types.BotCommand("history", "Melihat 5 riwayat trade terakhir yang sudah ditutup"),
             types.BotCommand("close", "Menutup paksa posisi. (Contoh: /close BTCUSDT)"),
             types.BotCommand("cancel", "Membatalkan open orders koin. (Contoh: /cancel BTCUSDT)")
         ])
-        print("Menu Perintah Telegram berhasil didaftarkan.")
+        logger.info("Menu Perintah Telegram berhasil didaftarkan.")
     except Exception as e:
-        print(f"[WARN] Gagal mendaftarkan menu perintah Telegram: {e}")
+        logger.warning(f"Gagal mendaftarkan menu perintah Telegram: {e}")
     
-    print("Menyiapkan Cron Scheduler...")
+    logger.info("Memulai Binance WebSocket Stream Manager (Real-time Event Listener)...")
+    try:
+        ws_manager.start()
+    except Exception as e:
+        logger.error(f"Gagal memulai WebSocket Stream Manager: {e}")
+
+    logger.info("Menyiapkan Cron Scheduler (Safety Net Fallback)...")
     scheduler = BackgroundScheduler()
     
-    # 1. Cek limit order pending setiap 30 detik
-    scheduler.add_job(cron_check_pending_orders, 'interval', seconds=30)
+    # 1. Cek limit order pending setiap 1 menit (karena real-time event sudah ditangani WebSocket)
+    scheduler.add_job(cron_check_pending_orders, 'interval', minutes=1)
     
-    # 2. Cek pergerakan harga posisi aktif (trailing Stop Loss & status TP) setiap 1 menit
-    scheduler.add_job(cron_monitor_active_positions, 'cron', minute='*')
+    # 2. Safety net fallback trailing SL & TP setiap 3 menit
+    scheduler.add_job(cron_monitor_active_positions, 'interval', minutes=3)
     
-    # 3. Sinkronisasi posisi tutup (bersih-bersih) setiap 15 detik
-    scheduler.add_job(cron_sync_closed_positions, 'interval', seconds=15)
+    # 3. Sinkronisasi posisi tutup (bersih-bersih) setiap 1 menit
+    scheduler.add_job(cron_sync_closed_positions, 'interval', minutes=1)
     
     # 4. Cek limit order pending yang kedaluwarsa (>4 jam) setiap 5 menit
     scheduler.add_job(cron_cancel_expired_orders, 'interval', minutes=5)
@@ -62,9 +71,10 @@ if __name__ == "__main__":
     
     scheduler.start()
     
-    print("Bot Telegram berjalan. Menunggu sinyal...")
+    logger.info("Bot Telegram berjalan. Menunggu sinyal & WebSocket events...")
     try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except (KeyboardInterrupt, SystemExit):
+        ws_manager.stop()
         scheduler.shutdown()
-        print("Bot dihentikan.")
+        logger.info("Bot dihentikan.")

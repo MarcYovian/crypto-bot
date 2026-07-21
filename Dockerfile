@@ -19,5 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy seluruh source code ke dalam container
 COPY . .
 
-# Jalankan main.py saat container dimulai
-CMD ["python", "main.py"]
+# Set PYTHONPATH agar import `backend` dapat ditemukan
+ENV PYTHONPATH=/app
+
+# Jalankan backend/main.py saat container dimulai
+CMD ["python", "backend/main.py"]
+

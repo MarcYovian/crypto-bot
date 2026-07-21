@@ -1,5 +1,11 @@
 # === KEAMANAN: Jangan pernah commit file ini ===
 .env
+.env.*
+!.env.example
+
+# === Data & Log Directories (Docker Mounts) ===
+data/
+logs/
 
 # === Virtual Environment ===
 .venv/
@@ -14,12 +20,15 @@ __pycache__/
 *.pyc
 *.pyo
 
-# === Database SQLite ===
+# === Database SQLite & WAL Files ===
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 
-# === Log Files ===
+# === Log & Temp Files ===
 *.log
+llms-full.txt
 
 # === OS Files ===
 .DS_Store

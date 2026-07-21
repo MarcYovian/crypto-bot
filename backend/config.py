@@ -12,8 +12,10 @@ BINANCE_TESTNET = os.getenv('BINANCE_TESTNET', 'False').lower() in ('true', '1',
 # Trading settings
 FIXED_LEVERAGE = 15
 MAX_RISK_PERCENT = 0.02
-DB_NAME = 'trading_bot.db'
+DB_NAME = 'data/trading_bot.db'
 
 # Shared Clients
-client = Client(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=BINANCE_TESTNET)
+client = Client(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=BINANCE_TESTNET, requests_params={'timeout': 30})
+if not hasattr(client, 'https_proxy'):
+    client.https_proxy = None
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)

@@ -6,8 +6,9 @@ services:
     container_name: crypto-bot
     restart: unless-stopped
     volumes:
-      # Mount database SQLite agar data transaksi tetap aman saat container di-restart
-      - ./trading_bot.db:/app/trading_bot.db
+      # Mount database SQLite & folder logs agar data & log transaksi tetap tersimpan saat container di-restart
+      - ./data:/app/data
+      - ./logs:/app/logs
     env_file:
       - .env
     environment:
@@ -18,7 +19,7 @@ services:
       - ALLOWED_USER_ID=${ALLOWED_USER_ID}
       - BINANCE_TESTNET=${BINANCE_TESTNET}
     healthcheck:
-      test: ["CMD", "python", "-c", "from config import client; client.futures_ping()"]
+      test: ["CMD", "python", "-c", "from backend.config import client; client.futures_ping()"]
       interval: 5m
       timeout: 15s
       retries: 3

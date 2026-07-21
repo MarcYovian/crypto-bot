@@ -1,21 +1,35 @@
 import time
 import sqlite3
 from datetime import datetime, timedelta
-from config import client, bot, ALLOWED_USER_ID, DB_NAME
-from database import get_active_trades, deactivate_trade, update_tp_stage, update_trade_orders
-from services.binance_service import get_symbol_info, round_step, place_partial_tps
+from backend.config import client, bot, ALLOWED_USER_ID, DB_NAME, FIXED_LEVERAGE
+from backend.db.repository import get_active_trades, deactivate_trade, update_tp_stage, update_trade_orders, record_partial_close, finalize_trade
+from backend.db.connection import get_connection
+from backend.services.binance_rest import get_symbol_info, place_partial_tps
+from backend.core.risk_manager import round_step
+from backend.logger import logger
 from binance.client import Client
 
 def cron_check_pending_orders():
     """Memantau limit order yang berstatus pending di database. 
     Jika terisi (filled), aktifkan Stop Loss awal dan pasang 3 Limit TP."""
-    print("[CRON PENDING] Mengecek limit order pending...")
+    logger.debug("[CRON PENDING] Mengecek limit order pending...")
     active_trades = get_active_trades()
     
     for trade in active_trades:
-        # Mengemas 16 kolom hasil query ter-update
-        (db_id, symbol, side, entry, sl, tp1, tp2, tp3, tp_stage, is_active, created_at,
-         entry_order_id, sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id) = trade
+        db_id = trade['id']
+        symbol = trade['symbol']
+        side = trade['side']
+        entry = trade['entry_price']
+        sl = trade['sl_price']
+        tp1 = trade['tp1_price']
+        tp2 = trade['tp2_price']
+        tp3 = trade['tp3_price']
+        tp_stage = trade['tp_stage']
+        entry_order_id = trade['entry_order_id']
+        sl_order_id = trade['sl_order_id']
+        tp1_order_id = trade['tp1_order_id']
+        tp2_order_id = trade['tp2_order_id']
+        tp3_order_id = trade['tp3_order_id']
         
         try:
             # Cek status order entry menggunakan orderId jika ada (lebih akurat & real-time)
@@ -66,7 +80,7 @@ def cron_check_pending_orders():
                 
                 if not has_sl_order:
                     print(f"[{symbol}] Limit order TERISI! Mengaktifkan Stop Loss & Limit TP...")
-                    tick_size, step_size = get_symbol_info(symbol)
+                    tick_size, step_size, min_qty, max_qty = get_symbol_info(symbol)
                     
                     # 1. Pasang SL awal
                     sl_side = "BUY" if side == "SELL" else "SELL"
@@ -92,7 +106,6 @@ def cron_check_pending_orders():
                     if actual_entry <= 0:
                         actual_entry = entry
                         
-                    from config import FIXED_LEVERAGE
                     size_usdt = qty * actual_entry
                     margin_used = size_usdt / FIXED_LEVERAGE
                     potential_loss = qty * abs(actual_entry - sl_price_rounded)
@@ -143,7 +156,6 @@ def cron_check_pending_orders():
         except Exception as e:
             print(f"[CRON PENDING ERROR] Gagal mengecek {symbol}: {e}")
 
-
 def cron_monitor_active_positions():
     """Memantau posisi aktif. Menggunakan status order limit TP untuk menggeser SL, 
     serta mengirim notifikasi eksekusi TP."""
@@ -151,8 +163,20 @@ def cron_monitor_active_positions():
     active_trades = get_active_trades()
     
     for trade in active_trades:
-        (db_id, symbol, side, entry, sl, tp1, tp2, tp3, tp_stage, is_active, created_at,
-         entry_order_id, sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id) = trade
+        db_id = trade['id']
+        symbol = trade['symbol']
+        side = trade['side']
+        entry = trade['entry_price']
+        sl = trade['sl_price']
+        tp1 = trade['tp1_price']
+        tp2 = trade['tp2_price']
+        tp3 = trade['tp3_price']
+        tp_stage = trade['tp_stage']
+        entry_order_id = trade['entry_order_id']
+        sl_order_id = trade['sl_order_id']
+        tp1_order_id = trade['tp1_order_id']
+        tp2_order_id = trade['tp2_order_id']
+        tp3_order_id = trade['tp3_order_id']
         
         try:
             # Cek ukuran posisi
@@ -163,7 +187,7 @@ def cron_monitor_active_positions():
             if position_amt == 0:
                 continue
                 
-            tick_size, step_size = get_symbol_info(symbol)
+            tick_size, step_size, min_qty, max_qty = get_symbol_info(symbol)
             actual_entry = float(pos_info[0]['entryPrice'])
             qty = abs(position_amt)
             
@@ -191,11 +215,14 @@ def cron_monitor_active_positions():
                         new_sl_id = str(new_sl_res.get('orderId') or new_sl_res.get('algoId'))
                         
                         # Hitung profit nominal yang direalisasikan
-                        qty_tp1 = round_step(qty * 2.0 * 0.50, step_size) # Menggunakan perkalian 2 karena saat ini qty sudah berkurang 50%
+                        qty_tp1 = round_step(qty * 2.0 * 0.50, step_size)
                         pnl1 = qty_tp1 * abs(float(order['price']) - actual_entry)
                         
-                        # Update DB
-                        update_tp_stage(db_id, 1)
+                        # Update DB & Record Partial Close (PRD-V2)
+                        record_partial_close(
+                            trade_id=db_id, event_type='TP1_HIT', exit_price=float(order['price']),
+                            qty_closed=qty_tp1, realized_pnl_usd=pnl1
+                        )
                         update_trade_orders(db_id, sl_order_id=new_sl_id)
                         
                         # Kirim Notifikasi
@@ -232,11 +259,14 @@ def cron_monitor_active_positions():
                         new_sl_id = str(new_sl_res.get('orderId') or new_sl_res.get('algoId'))
                         
                         # Hitung profit nominal yang direalisasikan
-                        qty_tp2 = round_step(qty * 3.0 * 0.25, step_size) # Qty tersisa adalah 25% dari total, aslinya TP2 mengambil 25%
+                        qty_tp2 = round_step(qty * 3.0 * 0.25, step_size)
                         pnl2 = qty_tp2 * abs(float(order['price']) - actual_entry)
                         
-                        # Update DB
-                        update_tp_stage(db_id, 2)
+                        # Update DB & Record Partial Close (PRD-V2)
+                        record_partial_close(
+                            trade_id=db_id, event_type='TP2_HIT', exit_price=float(order['price']),
+                            qty_closed=qty_tp2, realized_pnl_usd=pnl2
+                        )
                         update_trade_orders(db_id, sl_order_id=new_sl_id)
                         
                         # Kirim Notifikasi
@@ -257,7 +287,7 @@ def cron_monitor_active_positions():
                 try:
                     order = client.futures_get_order(symbol=symbol, orderId=tp3_order_id)
                     if order['status'] == 'FILLED':
-                        qty_tp3 = qty # Kuantitas tersisa
+                        qty_tp3 = qty
                         pnl3 = qty_tp3 * abs(float(order['price']) - actual_entry)
                         
                         # Update DB
@@ -307,7 +337,6 @@ def cron_monitor_active_positions():
                     new_sl_rounded = round_step(new_sl, tick_size)
                     sl_side = "BUY" if side == "SELL" else "SELL"
                     
-                    # Cari & hapus stop loss order lama saja dari open algo orders
                     try:
                         open_algos = client.futures_get_open_algo_orders(symbol=symbol)
                         for algo in open_algos:
@@ -328,21 +357,28 @@ def cron_monitor_active_positions():
         except Exception as e:
             print(f"[CRON ACTIVE ERROR] Gagal mengecek {symbol}: {e}")
 
-
 def cron_sync_closed_positions():
     """Mendeteksi jika posisi ditutup secara manual di Binance atau terkena SL/TP keras.
     Jika tertutup, bersihkan sisa order menggantung dan nonaktifkan di database."""
-    print("[CRON SYNC] Sinkronisasi posisi tutup...")
+    logger.debug("[CRON SYNC] Sinkronisasi posisi tutup...")
     active_trades = get_active_trades()
+    if not active_trades:
+        return
+        
+    try:
+        all_positions = client.futures_position_information()
+        pos_dict = {p['symbol']: float(p['positionAmt']) for p in all_positions}
+    except Exception as e:
+        logger.error(f"[CRON SYNC ERROR] Gagal mengambil batch position info: {e}")
+        return
     
     for trade in active_trades:
-        (db_id, symbol, side, entry, sl, tp1, tp2, tp3, tp_stage, is_active, created_at,
-         entry_order_id, sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id) = trade
+        db_id = trade['id']
+        symbol = trade['symbol']
+        side = trade['side']
         
         try:
-            # Cek ukuran posisi
-            pos_info = client.futures_position_information(symbol=symbol)
-            position_amt = float(pos_info[0]['positionAmt']) if pos_info else 0
+            position_amt = pos_dict.get(symbol, 0.0)
             
             if position_amt == 0:
                 # Cek apakah masih ada limit order pending yang tersisa
@@ -351,7 +387,7 @@ def cron_sync_closed_positions():
                 
                 # Jika tidak ada limit order pending AND posisi = 0, berarti posisi telah ditutup!
                 if not has_limit_entry:
-                    print(f"[{symbol}] Posisi terdeteksi tutup. Membersihkan order gantung...")
+                    logger.info(f"[{symbol}] Posisi terdeteksi tutup. Membersihkan order gantung...")
                     client.futures_cancel_all_open_orders(symbol=symbol)
                     try: client.futures_cancel_all_algo_open_orders(symbol=symbol)
                     except Exception: pass
@@ -363,8 +399,7 @@ def cron_sync_closed_positions():
                     )
         
         except Exception as e:
-            print(f"[CRON SYNC ERROR] Gagal mensinkronisasikan penuturan {symbol}: {e}")
-
+            logger.error(f"[CRON SYNC ERROR] Gagal mensinkronisasikan penutupan {symbol}: {e}")
 
 def cron_cancel_expired_orders():
     """Membatalkan limit order pending yang berumur lebih dari 4 jam (unfilled)."""
@@ -372,8 +407,10 @@ def cron_cancel_expired_orders():
     active_trades = get_active_trades()
     
     for trade in active_trades:
-        (db_id, symbol, side, entry, sl, tp1, tp2, tp3, tp_stage, is_active, created_at,
-         entry_order_id, sl_order_id, tp1_order_id, tp2_order_id, tp3_order_id) = trade
+        db_id = trade['id']
+        symbol = trade['symbol']
+        created_at = trade['created_at']
+        entry_order_id = trade['entry_order_id']
         
         try:
             created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
@@ -399,20 +436,16 @@ def cron_cancel_expired_orders():
         except Exception as e:
             print(f"[CRON EXPIRED ERROR] Gagal memproses kedaluwarsa {symbol}: {e}")
 
-
 def cron_send_daily_report():
     """Mengambil PnL realisasi, komisi, funding fee, dan info akun Binance Futures selama 24 jam terakhir dan mengirimkannya ke Telegram."""
     print("[CRON REPORT] Mengirim laporan performa harian...")
     try:
-        # 1. Ambil Saldo Wallet Saat Ini
         account_info = client.futures_account()
         wallet_balance = float(account_info['totalWalletBalance'])
         
-        # 2. Ambil riwayat pendapatan 24 jam terakhir
         start_time = int((time.time() - 24 * 3600) * 1000)
         incomes = client.futures_income_history(startTime=start_time)
         
-        # Filter & Kelompokkan Data
         pnl_incomes = [i for i in incomes if i['incomeType'] == 'REALIZED_PNL']
         commission_incomes = [i for i in incomes if i['incomeType'] == 'COMMISSION']
         funding_incomes = [i for i in incomes if i['incomeType'] == 'FUNDING_FEE']
@@ -421,7 +454,6 @@ def cron_send_daily_report():
         total_commission = sum(float(i['income']) for i in commission_incomes)
         total_funding = sum(float(i['income']) for i in funding_incomes)
         
-        # Kelompokkan PnL berdasarkan Simbol koin
         symbol_pnls = {}
         for i in pnl_incomes:
             sym = i['symbol']
@@ -454,7 +486,6 @@ def cron_send_daily_report():
         total_trades = win_trades + loss_trades
         win_rate = (win_trades / total_trades * 100) if total_trades > 0 else 0.0
         
-        # Hitung Net Hasil Akhir Bersih
         net_income = total_pnl + total_commission + total_funding
         
         emoji_net = "📈" if net_income >= 0 else "📉"
@@ -485,12 +516,11 @@ def cron_send_daily_report():
     except Exception as e:
         print(f"[CRON REPORT ERROR] Gagal mengirim laporan harian: {e}")
 
-
 def cron_db_housekeeping():
     """Membersihkan data trade tidak aktif yang sudah berusia lebih dari 30 hari di DB."""
     print("[CRON CLEANUP] Menjalankan pembersihan database...")
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_connection()
         c = conn.cursor()
         c.execute("DELETE FROM active_trades WHERE is_active = 0 AND created_at < datetime('now', '-30 days')")
         conn.commit()
@@ -499,7 +529,6 @@ def cron_db_housekeeping():
         print(f"[CRON CLEANUP] Berhasil menghapus {deleted_rows} baris trade lama dari database.")
     except Exception as e:
         print(f"[CRON CLEANUP ERROR] Gagal membersihkan database: {e}")
-
 
 def cron_check_api_health():
     """Memeriksa kesehatan koneksi dan API Key Binance."""
