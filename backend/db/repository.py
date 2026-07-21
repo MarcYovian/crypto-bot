@@ -224,8 +224,14 @@ def finalize_trade(trade_id, close_price, close_reason, final_commission_usd=0.0
         conn.commit()
         conn.close()
         logger.info(f"Trade (DB ID: {trade_id}) FINALIZED [{close_reason}]: Net PnL = ${net_pnl_usd:+.2f} ({net_pnl_percent:+.2f}%)")
+        return {
+            'net_pnl_usd': net_pnl_usd,
+            'net_pnl_percent': net_pnl_percent,
+            'close_reason': close_reason
+        }
     except Exception as e:
         logger.error(f"Gagal mendefinalisasi trade (DB ID: {trade_id}): {e}", exc_info=True)
+        return None
 
 def deactivate_trade(trade_id):
     """Menonaktifkan trade secara sederhana tanpa perhitungan komisi."""

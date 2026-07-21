@@ -146,12 +146,13 @@ class BinanceWebSocketManager:
         # 3. TP3 Terisi (FILLED) -> Tutup Posisi Penuh & Finalize Trade
         elif tp3_order_id and order_id == str(tp3_order_id) and tp_stage < 3:
             logger.info(f"[WS EVENT] TP3 Terisi untuk {symbol} @ {executed_price}. Menutup Trade...")
-            finalize_trade(db_id, close_price=executed_price, close_reason="FULL_TP")
+            summary = finalize_trade(db_id, close_price=executed_price, close_reason="FULL_TP")
             
+            pnl_info = f"\n💰 *Net PnL Bersih:* `+${summary['net_pnl_usd']:.2f}` (`+{summary['net_pnl_percent']:.2f}%` ROE)" if summary else ""
             bot.send_message(
                 ALLOWED_USER_ID,
                 f"🏁 *[{symbol}] Target TP3 Terpenuhi (via WebSocket)!*\n"
-                f"• Harga Eksekusi TP3: `{executed_price}`\n"
+                f"• Harga Eksekusi TP3: `{executed_price}`{pnl_info}\n"
                 f"• Posisi telah ditutup penuh dengan profit maksimal.",
                 parse_mode="Markdown"
             )
@@ -160,12 +161,13 @@ class BinanceWebSocketManager:
         elif sl_order_id and order_id == str(sl_order_id):
             logger.info(f"[WS EVENT] Stop Loss Terisi untuk {symbol} @ {executed_price}. Deaktivasi Trade...")
             close_reason = "TP1_BEP_SL" if tp_stage == 1 else "TP2_BEP_SL" if tp_stage == 2 else "SL_HIT"
-            finalize_trade(db_id, close_price=executed_price, close_reason=close_reason)
+            summary = finalize_trade(db_id, close_price=executed_price, close_reason=close_reason)
             
+            pnl_info = f"\n📊 *Hasil Akhir (Net PnL):* `${summary['net_pnl_usd']:+.2f}` (`{summary['net_pnl_percent']:+.2f}%` ROE)" if summary else ""
             bot.send_message(
                 ALLOWED_USER_ID,
-                f"🛡️ *[{symbol}] Stop Loss Tersentuh ({close_reason})* di harga `{executed_price}`.\n"
-                f"Posisi telah ditutup dan dirapikan di jurnal database.",
+                f"🛡️ *[{symbol}] Stop Loss Tersentuh ({close_reason})* di harga `{executed_price}`.{pnl_info}\n"
+                f"• Posisi telah ditutup dan dirapikan di jurnal database.",
                 parse_mode="Markdown"
             )
 
