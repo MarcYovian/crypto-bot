@@ -9,6 +9,23 @@ from backend.core.risk_manager import round_step
 from backend.logger import logger
 from binance.client import Client
 
+def safe_notify(chat_id, text, parse_mode=None, max_retries=2):
+    """Mengirim pesan Telegram secara aman — error jaringan TIDAK akan menghentikan trading logic.
+    Jika gagal setelah max_retries, error dicatat di log dan diabaikan."""
+    for attempt in range(max_retries):
+        try:
+            if parse_mode:
+                bot.send_message(chat_id, text, parse_mode=parse_mode)
+            else:
+                bot.send_message(chat_id, text)
+            return  # Sukses, keluar
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Tunggu 1 detik sebelum retry
+            else:
+                logger.warning(f"[TELEGRAM] Gagal mengirim notifikasi setelah {max_retries}x percobaan: {type(e).__name__}: {e}")
+
+
 def cron_check_pending_orders():
     """Memantau limit order yang berstatus pending di database. 
     Jika terisi (filled), aktifkan Stop Loss awal dan pasang 3 Limit TP."""
@@ -146,7 +163,7 @@ def cron_check_pending_orders():
                     )
                     
                     # Kirim notifikasi Telegram
-                    bot.send_message(
+                    safe_notify(
                         ALLOWED_USER_ID, 
                         f"🛡️ *[{symbol}] Limit Order Terisi!*\n"
                         f"Stop Loss & 3 Limit Take Profit parsial diaktifkan.{info_msg}",
@@ -228,7 +245,7 @@ def cron_monitor_active_positions():
                         update_trade_orders(db_id, sl_order_id=new_sl_id)
                         
                         # Kirim Notifikasi
-                        bot.send_message(
+                        safe_notify(
                             ALLOWED_USER_ID,
                             f"🎉 *[{symbol}] Target TP1 Terpenuhi! (50% Posisi Terjual)*\n"
                             f"• Harga TP1: `{order['price']}`\n"
@@ -272,7 +289,7 @@ def cron_monitor_active_positions():
                         update_trade_orders(db_id, sl_order_id=new_sl_id)
                         
                         # Kirim Notifikasi
-                        bot.send_message(
+                        safe_notify(
                             ALLOWED_USER_ID,
                             f"🎉 *[{symbol}] Target TP2 Terpenuhi! (25% Posisi Terjual)*\n"
                             f"• Harga TP2: `{order['price']}`\n"
@@ -296,7 +313,7 @@ def cron_monitor_active_positions():
                         update_tp_stage(db_id, 3)
                         
                         # Kirim Notifikasi
-                        bot.send_message(
+                        safe_notify(
                             ALLOWED_USER_ID,
                             f"🏁 *[{symbol}] Target TP3 Terpenuhi! (Posisi Ditutup Penuh)*\n"
                             f"• Harga TP3: `{order['price']}`\n"
@@ -354,7 +371,7 @@ def cron_monitor_active_positions():
                     
                     update_tp_stage(db_id, new_stage)
                     update_trade_orders(db_id, sl_order_id=str(sl_res.get('orderId') or sl_res.get('algoId')))
-                    bot.send_message(ALLOWED_USER_ID, f"🔄 [{symbol}] TP{new_stage} Hit! SL dipindah ke {new_sl_rounded}")
+                    safe_notify(ALLOWED_USER_ID, f"🔄 [{symbol}] TP{new_stage} Hit! SL dipindah ke {new_sl_rounded}")
 
         except Exception as e:
             print(f"[CRON ACTIVE ERROR] Gagal mengecek {symbol}: {e}")
@@ -397,7 +414,7 @@ def cron_sync_closed_positions():
                     # Cek keberhasilan deaktivasi database sebelum kirim pesan Telegram
                     try:
                         deactivate_trade(db_id)
-                        bot.send_message(
+                        safe_notify(
                             ALLOWED_USER_ID, 
                             f"🏁 [{symbol}] Posisi telah ditutup. Semua sisa order berhasil dibersihkan."
                         )
@@ -435,7 +452,7 @@ def cron_cancel_expired_orders():
                         client.futures_cancel_all_open_orders(symbol=symbol)
                         deactivate_trade(db_id)
                         
-                        bot.send_message(
+                        safe_notify(
                             ALLOWED_USER_ID, 
                             f"⏰ [{symbol}] Limit Order kedaluwarsa (4 jam tanpa terisi) dan telah dibatalkan."
                         )
@@ -517,7 +534,7 @@ def cron_send_daily_report():
             f"• {emoji_net} *Net Profit Bersih:* `{net_income:+.2f} USDT` _(PnL + Fee + Funding)_"
         )
         
-        bot.send_message(ALLOWED_USER_ID, report_msg, parse_mode="Markdown")
+        safe_notify(ALLOWED_USER_ID, report_msg, parse_mode="Markdown")
         print(f"[CRON REPORT] Laporan harian terkirim. Net Hasil Bersih: {net_income:+.2f} USDT")
     except Exception as e:
         print(f"[CRON REPORT ERROR] Gagal mengirim laporan harian: {e}")
@@ -543,7 +560,7 @@ def cron_check_api_health():
         client.futures_ping()
     except Exception as e:
         print(f"[CRON HEALTH ERROR] API Binance terganggu: {e}")
-        bot.send_message(
+        safe_notify(
             ALLOWED_USER_ID,
             f"⚠️ *PERINGATAN KONEKSI API*\n\n"
             f"Koneksi API Binance terganggu atau diblokir. Detail error:\n`{e}`",
@@ -562,7 +579,7 @@ def cron_check_margin_level():
             free_margin_pct = (available_balance / wallet_balance) * 100
             
             if free_margin_pct < 15.0:
-                bot.send_message(
+                safe_notify(
                     ALLOWED_USER_ID,
                     f"⚠️ *PERINGATAN MARGIN TIPIS!*\n\n"
                     f"Saldo Tersedia (Available Balance) Anda saat ini kritis:\n"
