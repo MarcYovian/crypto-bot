@@ -24,4 +24,3 @@ ENV PYTHONPATH=/app
 
 # Jalankan backend/main.py saat container dimulai
 CMD ["python", "backend/main.py"]
-

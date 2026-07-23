@@ -1,0 +1,181 @@
+# src/services/position_manager.py
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any
+from src.repository.trade_repository import TradeRepository
+from src.database.models import Trade, Order
+
+logger = logging.getLogger(__name__)
+
+
+class PositionManager:
+    """
+    Mengelola dinamika posisi aktif: Move SL ke BEP saat TP1 hit,
+    Trailing Stop, serta rekapitulasi Trade Summary saat posisi ditutup.
+    """
+
+    def __init__(self, trade_repo: TradeRepository, execution_engine=None):
+        self.trade_repo = trade_repo
+        self.execution_engine = execution_engine  # Instance BinanceExecutionEngine untuk ganti order SL
+
+    async def handle_order_fill(self, trade: Trade, filled_order: Order, fill_price: float, fill_qty: float) -> None:
+        """
+        Handler utama saat event order FILLED diterima dari WebSocket.
+        """
+        purpose = filled_order.purpose
+        logger.info(f"[PositionManager] Processing Fill for Trade #{trade.id} | Purpose: {purpose} | Price: {fill_price}")
+
+        # 1. ENTRY FILLED -> Ubah status Trade menjadi OPEN & Pasang SL/TP jika tadinya order LIMIT
+        if purpose == "ENTRY":
+            if trade.status == "WAITING_ENTRY":
+                await self.trade_repo.update_trade_status(
+                    trade_id=trade.id,
+                    status="OPEN",
+                    opened_at=datetime.now()
+                )
+                await self.trade_repo.log_event(trade.id, "ENTRY", f'{{"fill_price": {fill_price}, "qty": {fill_qty}}}')
+
+                # Jika tadinya order LIMIT, pasang SL dan TP sekarang karena posisi sudah resmi terisi (OPEN)
+                if filled_order.type == "LIMIT" and self.execution_engine:
+                    try:
+                        exit_side = 'sell' if trade.side == 'BUY' else 'buy'
+                        # Pasang SL
+                        sl_order = await self.execution_engine.exchange.create_order(
+                            symbol=trade.symbol,
+                            type='STOP_MARKET',
+                            side=exit_side,
+                            amount=trade.position_size,
+                            params={'stopPrice': trade.sl_price, 'reduceOnly': True}
+                        )
+                        await self.trade_repo.create_order(
+                            trade_id=trade.id,
+                            purpose="SL",
+                            order_type="STOP_MARKET",
+                            side=exit_side.upper(),
+                            qty=trade.position_size,
+                            price=trade.sl_price,
+                            binance_order_id=str(sl_order['id'])
+                        )
+                    except Exception as err:
+                        logger.error(f"[Trade #{trade.id}] Error setting SL after LIMIT fill: {err}")
+
+        # 2. TP1 FILLED -> Geser SL ke BEP (Entry Price)
+        elif purpose == "TP1":
+            await self.trade_repo.update_trade_status(trade.id, "PARTIAL")
+            await self.trade_repo.log_event(trade.id, "TP1", f'{{"fill_price": {fill_price}}}')
+            
+            # Geser SL ke BEP
+            await self._move_sl_to_bep(trade)
+
+        # 3. TP2 FILLED
+        elif purpose == "TP2":
+            await self.trade_repo.update_trade_status(trade.id, "PARTIAL")
+            await self.trade_repo.log_event(trade.id, "TP2", f'{{"fill_price": {fill_price}}}')
+
+        # 4. TP3 / SL / MANUAL_CLOSE -> Trade Selesai (CLOSED)
+        elif purpose in ["TP3", "SL", "BEP_SL", "MANUAL_CLOSE"]:
+            close_reason = purpose
+            await self.close_trade(trade, close_reason=close_reason, exit_price=fill_price)
+
+    async def _move_sl_to_bep(self, trade: Trade) -> None:
+        """
+        Menggeser Stop Loss ke harga Entry (Break Even Point).
+        """
+        bep_price = trade.entry_price or trade.avg_entry_price
+        logger.info(f"[Trade #{trade.id}] Moving SL to BEP @ {bep_price}")
+
+        try:
+            # Jika ada execution engine terhubung, batalkan SL lama dan pasang SL baru di BEP ke Binance
+            if self.execution_engine:
+                exit_side = 'sell' if trade.side == 'BUY' else 'buy'
+                
+                # Pasang SL Baru di BEP
+                new_sl_order = await self.execution_engine.exchange.create_order(
+                    symbol=trade.symbol,
+                    type='STOP_MARKET',
+                    side=exit_side,
+                    amount=trade.remaining_qty,
+                    params={
+                        'stopPrice': bep_price,
+                        'reduceOnly': True
+                    }
+                )
+                
+                # Catat order BEP_SL baru di database
+                await self.trade_repo.create_order(
+                    trade_id=trade.id,
+                    purpose="BEP_SL",
+                    order_type="STOP_MARKET",
+                    side="SELL" if trade.side == "BUY" else "BUY",
+                    qty=trade.remaining_qty,
+                    price=bep_price,
+                    binance_order_id=str(new_sl_order['id'])
+                )
+
+            await self.trade_repo.log_event(
+                trade.id, "SL_MOVED_TO_BEP", f'{{"bep_price": {bep_price}}}'
+            )
+
+        except Exception as e:
+            logger.error(f"[Trade #{trade.id}] Gagal memindahkan SL ke BEP: {str(e)}")
+
+    async def close_trade(self, trade: Trade, close_reason: str, exit_price: float) -> None:
+        """
+        Menutup trade, membatalkan order pending sisa, dan menghitung statistik akhir (Summary).
+        """
+        closed_at = datetime.now()
+        await self.trade_repo.update_trade_status(trade.id, "CLOSED", closed_at=closed_at)
+        await self.trade_repo.log_event(trade.id, close_reason, f'{{"exit_price": {exit_price}}}')
+
+        # 1. Batalkan semua sisa order di Binance (misal TP2/TP3 jika kena SL)
+        if self.execution_engine:
+            try:
+                await self.execution_engine.exchange.cancel_all_orders(trade.symbol)
+            except Exception as e:
+                logger.warning(f"[Trade #{trade.id}] Warning saat cancel remaining orders: {e}")
+
+        # 2. Hitung Summary PNL & Statistics
+        await self._generate_trade_summary(trade, close_reason, exit_price, closed_at)
+
+    async def _generate_trade_summary(self, trade: Trade, close_reason: str, exit_price: float, closed_at: datetime) -> None:
+        """
+        Mengkalkulasi ROI, RR, Net PNL, dan durasi trade.
+        """
+        entry_price = trade.entry_price or trade.avg_entry_price or 1.0
+        
+        # Hitung Gross PNL
+        if trade.side == "BUY":
+            gross_pnl = (exit_price - entry_price) * trade.position_size
+        else:
+            gross_pnl = (entry_price - exit_price) * trade.position_size
+
+        # Perkiraan komisi Taker Binance (0.05%)
+        total_commission = (entry_price + exit_price) * trade.position_size * 0.0005
+        net_pnl = gross_pnl - total_commission
+        
+        # Durasi
+        opened_at = trade.opened_at or trade.created_at or closed_at
+        duration = int((closed_at - opened_at).total_seconds())
+        
+        # ROI & Risk-Reward (RR)
+        margin_used = (entry_price * trade.position_size) / trade.leverage
+        roi = (net_pnl / margin_used) * 100 if margin_used > 0 else 0.0
+        
+        stop_dist = abs(entry_price - trade.sl_price)
+        rr = (abs(exit_price - entry_price) / stop_dist) if stop_dist > 0 else 0.0
+        
+        win = 1 if net_pnl > 0 else 0
+
+        await self.trade_repo.save_summary(
+            trade_id=trade.id,
+            gross_pnl=gross_pnl,
+            net_pnl=net_pnl,
+            commission=total_commission,
+            roi=roi,
+            rr=rr,
+            win=win,
+            duration_seconds=duration,
+            close_reason=close_reason,
+            closed_at=closed_at
+        )
+        logger.info(f"[Trade #{trade.id}] Summary Saved! Net PNL: ${net_pnl:.2f} | Win: {win} | Reason: {close_reason}")

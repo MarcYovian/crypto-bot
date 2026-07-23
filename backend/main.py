@@ -1,86 +1,91 @@
-from backend.db.connection import init_db
-from backend.config import bot
-from backend.bot.handlers.signal_handler import register_handlers
-from backend.services.binance_ws import ws_manager
-from backend.logger import logger
-from backend.jobs.scheduler import (
-    cron_check_pending_orders,
-    cron_monitor_active_positions,
-    cron_sync_closed_positions,
-    cron_cancel_expired_orders,
-    cron_send_daily_report,
-    cron_db_housekeeping,
-    cron_check_api_health,
-    cron_check_margin_level,
-    cron_reset_daily_anchor_balance
+# backend/main.py
+import asyncio
+import logging
+import sys
+from pytz import timezone
+
+from config.settings import settings
+from src.database.connection import init_db, AsyncSessionLocal
+from src.repository.trade_repository import TradeRepository
+from src.repository.signal_repository import SignalRepository
+from src.services.execution_engine import BinanceExecutionEngine
+from src.services.position_manager import PositionManager
+from src.services.websocket_listener import BinanceStreamListener
+from src.services.telegram_service import TelegramService
+from src.services.scheduler_service import CronSchedulerService
+
+# Setup Centralized Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("bot.log", encoding="utf-8")
+    ]
 )
-from apscheduler.schedulers.background import BackgroundScheduler
+logger = logging.getLogger("MAIN")
+
+
+async def main():
+    logger.info("==================================================")
+    logger.info("🚀 Starting Semi-Automated Binance Futures Bot V2")
+    logger.info("==================================================")
+
+    # 1. Inisialisasi Database SQLite & Tabel
+    logger.info("Initializing Database...")
+    await init_db()
+
+    # 2. Inisialisasi Execution Engine
+    execution_engine = BinanceExecutionEngine()
+
+    async with AsyncSessionLocal() as session:
+        trade_repo = TradeRepository(session)
+        position_manager = PositionManager(trade_repo, execution_engine)
+        
+        # 3. Inisialisasi & Jalankan Cron Scheduler
+        cron_scheduler = CronSchedulerService(execution_engine)
+        cron_scheduler.start()
+        # Jalankan initial check untuk memastikan Snapshot Risk hari ini sudah dibuat
+        await cron_scheduler.run_initial_daily_risk_check()
+
+        # 4. Inisialisasi & Jalankan Binance WebSocket Listener (Background Task)
+        ws_listener = BinanceStreamListener(trade_repo, position_manager)
+        ws_task = asyncio.create_task(ws_listener.start())
+
+        # 5. Inisialisasi Telegram Bot Listener
+        telegram_service = TelegramService(
+            execution_engine=execution_engine,
+            token=settings.TELEGRAM_BOT_TOKEN,
+            allowed_chat_id=settings.TELEGRAM_CHAT_ID
+        )
+
+        logger.info("🔥 All Bot Modules Active & Running! Listening for Signals...")
+
+        try:
+            # Jalankan Telegram Listener (Async Polling)
+            await telegram_service.app.initialize()
+            await telegram_service.app.start()
+            await telegram_service.app.updater.start_polling()
+
+            # Menjaga Loop Tetap Berjalan
+            while True:
+                await asyncio.sleep(1)
+
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Shutdown Signal Received...")
+        finally:
+            # Graceful Shutdown Sequence
+            logger.info("Cleaning up and stopping processes...")
+            cron_scheduler.stop()
+            await ws_listener.stop()
+            ws_task.cancel()
+            await execution_engine.close_connection()
+            await telegram_service.app.updater.stop()
+            await telegram_service.app.stop()
+            logger.info("👋 Bot Gracefully Stopped.")
 
 if __name__ == "__main__":
-    logger.info("Mempersiapkan Database...")
-    init_db()
-    
-    logger.info("Menyiapkan Telegram Handlers...")
-    register_handlers(bot)
-    
-    # Daftarkan daftar perintah agar muncul sebagai tombol/menu di Telegram
-    from telebot import types
     try:
-        bot.set_my_commands([
-            types.BotCommand("status", "Melihat seluruh posisi aktif di Binance Futures"),
-            types.BotCommand("risk", "Melihat & mengatur konfigurasi manajemen risiko & Daily Anchor"),
-            types.BotCommand("summary", "Melihat rekapitulasi performa trading & Net PnL (PRD-V2)"),
-            types.BotCommand("history", "Melihat 5 riwayat trade terakhir yang sudah ditutup"),
-            types.BotCommand("close", "Menutup paksa posisi. (Contoh: /close BTCUSDT)"),
-            types.BotCommand("cancel", "Membatalkan open orders koin. (Contoh: /cancel BTCUSDT)"),
-            types.BotCommand("reset_anchor", "Reset saldo acuan harian (Daily Anchor) ke Total Equity saat ini")
-        ])
-        logger.info("Menu Perintah Telegram berhasil didaftarkan.")
+        asyncio.run(main())
     except Exception as e:
-        logger.warning(f"Gagal mendaftarkan menu perintah Telegram: {e}")
-    
-    logger.info("Memulai Binance WebSocket Stream Manager (Real-time Event Listener)...")
-    try:
-        ws_manager.start()
-    except Exception as e:
-        logger.error(f"Gagal memulai WebSocket Stream Manager: {e}")
-
-    logger.info("Menyiapkan Cron Scheduler (Safety Net Fallback)...")
-    scheduler = BackgroundScheduler()
-    
-    # 1. Cek limit order pending setiap 1 menit (karena real-time event sudah ditangani WebSocket)
-    scheduler.add_job(cron_check_pending_orders, 'interval', minutes=1)
-    
-    # 2. Safety net fallback trailing SL & TP setiap 3 menit
-    scheduler.add_job(cron_monitor_active_positions, 'interval', minutes=3)
-    
-    # 3. Sinkronisasi posisi tutup (bersih-bersih) setiap 1 menit
-    scheduler.add_job(cron_sync_closed_positions, 'interval', minutes=1)
-    
-    # 4. Cek limit order pending yang kedaluwarsa (>4 jam) setiap 5 menit
-    scheduler.add_job(cron_cancel_expired_orders, 'interval', minutes=5)
-    
-    # 5. Kirim laporan performa harian setiap hari pukul 23:59 WIB/UTC
-    scheduler.add_job(cron_send_daily_report, 'cron', hour=23, minute=59)
-    
-    # 6. Pembersihan database mingguan setiap hari Minggu pukul 00:00
-    scheduler.add_job(cron_db_housekeeping, 'cron', day_of_week='sun', hour=0, minute=0)
-    
-    # 7. Memeriksa status kesehatan koneksi API Key setiap 30 menit
-    scheduler.add_job(cron_check_api_health, 'interval', minutes=30)
-    
-    # 8. Memeriksa tingkat ketersediaan free margin setiap 10 menit
-    scheduler.add_job(cron_check_margin_level, 'interval', minutes=10)
-    
-    # 9. Reset Daily Anchor Balance ke Total Equity dompet terkini setiap jam 00:00 WIB/UTC
-    scheduler.add_job(cron_reset_daily_anchor_balance, 'cron', hour=0, minute=0)
-    
-    scheduler.start()
-    
-    logger.info("Bot Telegram berjalan. Menunggu sinyal & WebSocket events...")
-    try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=30)
-    except (KeyboardInterrupt, SystemExit):
-        ws_manager.stop()
-        scheduler.shutdown()
-        logger.info("Bot dihentikan.")
+        logger.critical(f"Fatal Startup Error: {e}", exc_info=True)
