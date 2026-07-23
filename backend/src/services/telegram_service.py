@@ -28,8 +28,19 @@ class TelegramService:
         self.token = token or settings.TELEGRAM_BOT_TOKEN
         self.allowed_chat_id = allowed_chat_id or settings.TELEGRAM_CHAT_ID
         self.execution_engine = execution_engine
-        self.app = Application.builder().token(self.token).build()
+        self.app = Application.builder().token(self.token).post_init(self._setup_bot_commands).build()
         self._register_handlers()
+
+    async def _setup_bot_commands(self, application: Application):
+        """Mendaftarkan menu tombol auto-complete perintah ke Telegram."""
+        from telegram import BotCommand
+        commands = [
+            BotCommand("account", "Cek saldo & info akun Binance"),
+            BotCommand("status", "Cek posisi trading & order aktif"),
+            BotCommand("summary", "Laporan ringkasan performa trading"),
+            BotCommand("close", "Tutup posisi manual (cth: /close SOLUSDT)"),
+        ]
+        await application.bot.set_my_commands(commands)
 
     def _register_handlers(self):
         self.app.add_handler(CommandHandler(["account", "balance"], self._cmd_account))
