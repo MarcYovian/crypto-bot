@@ -116,9 +116,9 @@ class CronSchedulerService:
                 for trade in expired_trades:
                     logger.info(f"🧹 Trade #{trade.id} ({trade.symbol}) berstatus WAITING_ENTRY > 4 jam. Membatalkan order Limit...")
                     
-                    # 1. Batalkan semua order gantung untuk koin ini di Binance
+                    # 1. Batalkan semua sisa Limit Order pending untuk trade ini di Binance
                     try:
-                        await self.execution_engine.exchange.cancel_all_orders(trade.symbol)
+                        await self.execution_engine.cancel_all_orders(trade.symbol)
                     except Exception as err:
                         logger.warning(f"Warning cancel order Binance [{trade.symbol}]: {err}")
 
@@ -141,8 +141,8 @@ class CronSchedulerService:
                 active_trades = await trade_repo.get_active_trades()
 
                 for trade in active_trades:
-                    # Ambil informasi posisi terbuka dari Binance Futures
-                    positions = await self.execution_engine.exchange.fetch_positions([trade.symbol])
+                    # Ambil informasi posisi terbuka dari Binance Futures via execution_engine
+                    positions = await self.execution_engine.fetch_positions([trade.symbol])
                     pos = next((p for p in positions if p.get('symbol') == trade.symbol), None)
 
                     position_qty = abs(float(pos.get('contracts') or pos.get('positionAmt') or 0.0)) if pos else 0.0

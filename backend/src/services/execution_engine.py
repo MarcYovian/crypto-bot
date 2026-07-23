@@ -85,7 +85,32 @@ class BinanceExecutionEngine:
         else:
             return await self.exchange.fetch_balance()
 
-    async def fetch_symbol_info(self, symbol: str) -> SymbolInfo:
+    async def fetch_positions(self, symbols: List[str]) -> list:
+        """Mengambil posisi terbuka di Binance (Mendukung Legacy & CCXT)."""
+        if self.use_legacy:
+            loop = asyncio.get_running_loop()
+            res = await loop.run_in_executor(None, self.legacy_client.futures_position_information)
+            # Map respon python-binance ke format list posisi standar
+            filtered = []
+            for p in res:
+                if p.get('symbol') in symbols:
+                    amt = float(p.get('positionAmt', 0.0))
+                    filtered.append({
+                        'symbol': p.get('symbol'),
+                        'contracts': abs(amt),
+                        'positionAmt': amt
+                    })
+            return filtered
+        else:
+            return await self.exchange.fetch_positions(symbols)
+
+    async def cancel_all_orders(self, symbol: str) -> None:
+        """Membatalkan semua open orders untuk simbol terkait."""
+        if self.use_legacy:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: self.legacy_client.futures_cancel_all_open_orders(symbol=symbol))
+        else:
+            await self.exchange.cancel_all_orders(symbol)
         """Mengambil data precision filter dan min notional dari Exchange Info."""
         if self.use_legacy:
             loop = asyncio.get_running_loop()
