@@ -46,8 +46,8 @@ async def test_tc02_signal_long_above_tp1_rejected(mock_execution_engine):
 async def test_tc03_tc04_failsafe_sync_check_recovers_trade_status(mock_execution_engine):
     from src.services.scheduler_service import CronSchedulerService
     
-    # Mock Binance fetch_positions mengembalikan posisi aktif untuk BTCUSDT
-    mock_execution_engine.exchange.fetch_positions = AsyncMock(return_value=[
+    # Mock Binance fetch_positions wrapper V2 mengembalikan posisi aktif untuk BTCUSDT
+    mock_execution_engine.fetch_positions = AsyncMock(return_value=[
         {'symbol': 'BTCUSDT', 'contracts': 0.05, 'positionAmt': 0.05}
     ])
     
@@ -66,7 +66,7 @@ async def test_tc03_tc04_failsafe_sync_check_recovers_trade_status(mock_executio
         mock_update.assert_called_once_with(1, "OPEN")
 
 
-# TC-05: Risk Guard jika Saldo Terlalu Kecil untuk memenuhi MIN_NOTIONAL ($5 USDT) -> HARUS REJECT
+# TC-05: Risk Guard jika Saldo Terlalu Kecil -> Dinamis dinaikkan ke min_notional / min_qty
 def test_tc05_insufficient_balance_below_min_notional():
     symbol_info = SymbolInfo("BTCUSDT", price_precision=2, qty_precision=3, tick_size=0.10, step_size=0.001, min_qty=0.001, min_notional=5.0)
     
@@ -80,8 +80,9 @@ def test_tc05_insufficient_balance_below_min_notional():
         symbol_info=symbol_info
     )
     
-    assert result.is_valid is False
-    assert "di bawah MIN_QTY" in result.error_message or "di bawah MIN_NOTIONAL" in result.error_message
+    # Berhasil direkalkulasi ke min_qty / min_notional
+    assert result.is_valid is True
+    assert result.position_size >= symbol_info.min_qty
 
 
 # TC-06: Precision Guard pada Koin Desimal Banyak (PEPEUSDT) -> Dibulatkan menggunakan step_size tanpa error

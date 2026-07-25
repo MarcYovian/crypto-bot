@@ -67,6 +67,8 @@ async def test_validate_signal_market_state_sl_breached(mock_trade_repo):
 @pytest.mark.asyncio
 async def test_execute_trade_pipeline_limit_order(mock_trade_repo, risk_res):
     engine = BinanceExecutionEngine(mock_trade_repo)
+    engine.use_legacy = False
+    engine.exchange = MagicMock()
     
     # Mock CCXT Pro Exchange Methods
     engine.exchange.fetch_ticker = AsyncMock(return_value={'last': 60500.0})  # Harga di atas harga entry + toleransi (Limit)
@@ -80,7 +82,8 @@ async def test_execute_trade_pipeline_limit_order(mock_trade_repo, risk_res):
         side="BUY",
         risk_res=risk_res,
         tp_prices=[62000.0],
-        leverage=20
+        leverage=20,
+        symbol_info=MagicMock(tick_size=0.1, step_size=0.001, min_qty=0.001, min_notional=5.0, price_precision=2, qty_precision=3, max_qty=9999.0)
     )
 
     assert res.success is True

@@ -60,7 +60,7 @@ def test_risk_calculator_normal_buy(btc_symbol_info):
 
 
 def test_risk_calculator_min_notional_fail(btc_symbol_info):
-    # Risk $0.1 USDT dengan SL yang sangat jauh -> Qty sangat kecil
+    # Risk $0.1 USDT dengan SL yang sangat jauh -> Qty sangat kecil -> Direkalkulasi ke min_qty
     result: RiskCalculationResult = RiskCalculatorService.calculate_position(
         daily_risk_amount=0.1,
         entry_price=60000.0,
@@ -70,8 +70,8 @@ def test_risk_calculator_min_notional_fail(btc_symbol_info):
         symbol_info=btc_symbol_info
     )
 
-    assert result.is_valid is False
-    assert "di bawah MIN_QTY" in result.error_message or "di bawah MIN_NOTIONAL" in result.error_message
+    assert result.is_valid is True
+    assert result.position_size >= btc_symbol_info.min_qty
 
 
 def test_risk_calculator_same_entry_sl(btc_symbol_info):
