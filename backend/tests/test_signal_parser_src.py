@@ -84,7 +84,7 @@ TP1: 0.5000"""
     signal: ParsedSignal = SignalParserService.parse(text)
 
     assert signal.is_valid is False
-    assert signal.error_message == "Invalid SL: Untuk BUY, SL harus di bawah Entry"
+    assert signal.error_message == "For BUY, SL must be below entry"
 
 
 def test_parse_non_signal_chat():
@@ -93,4 +93,4 @@ def test_parse_non_signal_chat():
     signal: ParsedSignal = SignalParserService.parse(text)
 
     assert signal.is_valid is False
-    assert signal.error_message == "Side (LONG/SHORT) tidak ditemukan"
+    assert signal.error_message == "Side (LONG/SHORT) not found"

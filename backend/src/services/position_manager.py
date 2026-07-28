@@ -1,7 +1,8 @@
-# src/services/position_manager.py
+"""Position lifecycle manager: SL-to-BEP, partial fills, trade closure, and summaries."""
+
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 from src.repository.trade_repository import TradeRepository
 from src.database.models import Trade, Order
 
@@ -9,23 +10,31 @@ logger = logging.getLogger(__name__)
 
 
 class PositionManager:
-    """
-    Mengelola dinamika posisi aktif: Move SL ke BEP saat TP1 hit,
-    Trailing Stop, serta rekapitulasi Trade Summary saat posisi ditutup.
+    """Manages active position dynamics: SL-to-BEP promotion on TP1, trailing stop,
+    and trade-summary generation on closure.
+
+    This is the core state-machine that reacts to order-filled events dispatched
+    by the WebSocket listener.
     """
 
     def __init__(self, trade_repo: TradeRepository, execution_engine=None):
         self.trade_repo = trade_repo
-        self.execution_engine = execution_engine  # Instance BinanceExecutionEngine untuk ganti order SL
+        self.execution_engine = execution_engine
 
     async def handle_order_fill(self, trade: Trade, filled_order: Order, fill_price: float, fill_qty: float) -> None:
-        """
-        Handler utama saat event order FILLED diterima dari WebSocket.
+        """React to an order-filled event from the WebSocket stream.
+
+        Dispatches based on the order's purpose:
+
+        - ``ENTRY`` → sets status to ``OPEN``; places SL/TP if entry was LIMIT.
+        - ``TP1``   → sets status to ``PARTIAL``; moves SL to break-even.
+        - ``TP2``   → sets status to ``PARTIAL``.
+        - ``TP3`` / ``SL`` / ``BEP_SL`` / ``MANUAL_CLOSE`` → closes the trade
+          and generates a performance summary.
         """
         purpose = filled_order.purpose
         logger.info(f"[PositionManager] Processing Fill for Trade #{trade.id} | Purpose: {purpose} | Price: {fill_price}")
 
-        # 1. ENTRY FILLED -> Ubah status Trade menjadi OPEN & Pasang SL/TP jika tadinya order LIMIT
         if purpose == "ENTRY":
             if trade.status == "WAITING_ENTRY":
                 await self.trade_repo.update_trade_status(
@@ -35,7 +44,8 @@ class PositionManager:
                 )
                 await self.trade_repo.log_event(trade.id, "ENTRY", f'{{"fill_price": {fill_price}, "qty": {fill_qty}}}')
 
-                # Jika tadinya order LIMIT, pasang SL dan TP sekarang karena posisi sudah resmi terisi (OPEN)
+                # For LIMIT orders the SL/TP are placed now (market orders
+                # already had them placed by the execution engine).
                 if filled_order.type == "LIMIT" and self.execution_engine:
                     try:
                         exit_side = 'sell' if trade.side == 'BUY' else 'buy'
@@ -45,7 +55,7 @@ class PositionManager:
                             type='STOP_MARKET',
                             side=exit_side,
                             amount=trade.position_size,
-                            params={'stopPrice': trade.sl_price, 'reduceOnly': True}
+                            params={'stopPrice': trade.sl_price, 'closePosition': True}
                         )
                         await self.trade_repo.create_order(
                             trade_id=trade.id,
@@ -59,33 +69,29 @@ class PositionManager:
                     except Exception as err:
                         logger.error(f"[Trade #{trade.id}] Error setting SL after LIMIT fill: {err}")
 
-        # 2. TP1 FILLED -> Geser SL ke BEP (Entry Price)
         elif purpose == "TP1":
             await self.trade_repo.update_trade_status(trade.id, "PARTIAL")
             await self.trade_repo.log_event(trade.id, "TP1", f'{{"fill_price": {fill_price}}}')
-            
-            # Geser SL ke BEP
             await self._move_sl_to_bep(trade)
 
-        # 3. TP2 FILLED
         elif purpose == "TP2":
             await self.trade_repo.update_trade_status(trade.id, "PARTIAL")
             await self.trade_repo.log_event(trade.id, "TP2", f'{{"fill_price": {fill_price}}}')
 
-        # 4. TP3 / SL / MANUAL_CLOSE -> Trade Selesai (CLOSED)
         elif purpose in ["TP3", "SL", "BEP_SL", "MANUAL_CLOSE"]:
             close_reason = purpose
             await self.close_trade(trade, close_reason=close_reason, exit_price=fill_price)
 
     async def _move_sl_to_bep(self, trade: Trade) -> None:
-        """
-        Menggeser Stop Loss ke harga Entry (Break Even Point).
+        """Move the stop-loss to the entry price (break-even point).
+
+        Cancels the existing SL on Binance and places a new ``STOP_MARKET``
+        order at the entry price with ``reduceOnly``.
         """
         bep_price = trade.entry_price or trade.avg_entry_price
         logger.info(f"[Trade #{trade.id}] Moving SL to BEP @ {bep_price}")
 
         try:
-            # Jika ada execution engine terhubung, batalkan SL lama dan pasang SL baru di BEP ke Binance
             if self.execution_engine:
                 exit_side = 'sell' if trade.side == 'BUY' else 'buy'
                 
@@ -117,30 +123,25 @@ class PositionManager:
             )
 
         except Exception as e:
-            logger.error(f"[Trade #{trade.id}] Gagal memindahkan SL ke BEP: {str(e)}")
+            logger.error(f"[Trade #{trade.id}] Failed to move SL to BEP: {str(e)}")
 
     async def close_trade(self, trade: Trade, close_reason: str, exit_price: float) -> None:
-        """
-        Menutup trade, membatalkan order pending sisa, dan menghitung statistik akhir (Summary).
-        """
+        """Close a trade, cancel remaining orders, and persist the performance summary."""
         closed_at = datetime.now()
         await self.trade_repo.update_trade_status(trade.id, "CLOSED", closed_at=closed_at)
         await self.trade_repo.log_event(trade.id, close_reason, f'{{"exit_price": {exit_price}}}')
 
-        # 1. Batalkan semua sisa order di Binance (misal TP2/TP3 jika kena SL)
+        # Cancel remaining orders on Binance (e.g. unfilled TP2/TP3 if stopped out)
         if self.execution_engine:
             try:
                 await self.execution_engine.exchange.cancel_all_orders(trade.symbol)
             except Exception as e:
-                logger.warning(f"[Trade #{trade.id}] Warning saat cancel remaining orders: {e}")
+                logger.warning(f"[Trade #{trade.id}] Warning cancelling remaining orders: {e}")
 
-        # 2. Hitung Summary PNL & Statistics
         await self._generate_trade_summary(trade, close_reason, exit_price, closed_at)
 
     async def _generate_trade_summary(self, trade: Trade, close_reason: str, exit_price: float, closed_at: datetime) -> None:
-        """
-        Mengkalkulasi ROI, RR, Net PNL, dan durasi trade.
-        """
+        """Calculate and persist PnL, ROI, R:R, duration, and win/loss for the closed trade."""
         entry_price = trade.entry_price or trade.avg_entry_price or 1.0
         
         # Hitung Gross PNL

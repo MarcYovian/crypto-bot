@@ -20,6 +20,7 @@ services:
       - BINANCE_TESTNET=${BINANCE_TESTNET}
       - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE}
       - CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD}
+      - LOG_LEVEL=${LOG_LEVEL}
     logging:
       driver: "json-file"
       options:

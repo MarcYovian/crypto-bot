@@ -1,3 +1,5 @@
+"""Data-access layer for the ``trading_signals`` table."""
+
 from typing import Optional, List
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,21 +8,31 @@ from src.services.signal_parser import ParsedSignal
 
 
 class SignalRepository:
+    """CRUD operations for trading signals."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def create_signal_from_parsed(
-        self, 
-        parsed: ParsedSignal, 
-        telegram_message_id: Optional[int] = None, 
+        self,
+        parsed: ParsedSignal,
+        telegram_message_id: Optional[int] = None,
         source: str = "TELEGRAM"
     ) -> TradingSignal:
-        """Menyimpan hasil parsing sinyal ke tabel trading_signals."""
-        
-        # Tentukan status konfirmasi berdasarkan kebutuhan
-        conf_status = "NOT_REQUIRED"
-        if parsed.confidence and parsed.confidence < 0.70:
-            conf_status = "PENDING"
+        """Persist a parsed signal to the ``trading_signals`` table.
+
+        Low-confidence signals (< 70 %) are created with a ``PENDING``
+        confirmation status so the user can approve or reject them manually.
+
+        Args:
+            parsed: The parsed signal dataclass.
+            telegram_message_id: Original Telegram message ID for dedup.
+            source: Signal source identifier.
+
+        Returns:
+            The newly created ``TradingSignal`` ORM instance.
+        """
+        conf_status = "PENDING" if (parsed.confidence and parsed.confidence < 0.70) else "NOT_REQUIRED"
 
         signal = TradingSignal(
             telegram_message_id=telegram_message_id,
@@ -44,13 +56,13 @@ class SignalRepository:
         return signal
 
     async def get_by_id(self, signal_id: int) -> Optional[TradingSignal]:
-        """Mengambil data sinyal berdasarkan Primary Key ID."""
+        """Fetch a signal by its primary key."""
         stmt = select(TradingSignal).where(TradingSignal.id == signal_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def update_confirmation_status(self, signal_id: int, status: str) -> None:
-        """Update status konfirmasi user (APPROVED / REJECTED)."""
+        """Set the user-confirmation status (``APPROVED`` / ``REJECTED``)."""
         stmt = (
             update(TradingSignal)
             .where(TradingSignal.id == signal_id)
@@ -60,7 +72,11 @@ class SignalRepository:
         await self.session.commit()
 
     async def update_signal_status(self, signal_id: int, status: str) -> None:
-        """Update status siklus sinyal (EXECUTED / REJECTED / CANCELLED / EXPIRED)."""
+        """Advance the signal lifecycle status.
+
+        Typical transitions: ``RECEIVED`` → ``EXECUTED`` / ``REJECTED`` /
+        ``CANCELLED`` / ``EXPIRED``.
+        """
         stmt = (
             update(TradingSignal)
             .where(TradingSignal.id == signal_id)
@@ -68,9 +84,12 @@ class SignalRepository:
         )
         await self.session.execute(stmt)
         await self.session.commit()
-    
+
     async def is_duplicate_active_signal(self, symbol: str, side: str) -> bool:
-        """Mencegah duplicate trade pada pair & side yang sama jika sinyal masih aktif."""
+        """Return ``True`` if an active signal already exists for this pair and side.
+
+        An active signal is one with status ``RECEIVED`` or ``EXECUTED``.
+        """
         stmt = select(TradingSignal).where(
             TradingSignal.symbol == symbol,
             TradingSignal.side == side,

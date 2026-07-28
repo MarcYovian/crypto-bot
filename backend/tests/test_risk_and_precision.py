@@ -85,4 +85,4 @@ def test_risk_calculator_same_entry_sl(btc_symbol_info):
     )
 
     assert result.is_valid is False
-    assert result.error_message == "Entry dan Stop Loss tidak boleh sama."
+    assert result.error_message == "Entry and Stop Loss prices cannot be identical."

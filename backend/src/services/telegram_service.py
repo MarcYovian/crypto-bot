@@ -1,7 +1,9 @@
+"""Async Telegram bot that receives signals, handles confirmations, and triggers execution."""
+
 import logging
 from datetime import datetime
 from pytz import timezone
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 from config.settings import settings
@@ -11,17 +13,20 @@ from src.repository.trade_repository import TradeRepository
 from src.services.signal_parser import SignalParserService, ParsedSignal
 from src.services.risk_calculator import RiskCalculatorService, RiskCalculationResult
 from src.services.execution_engine import BinanceExecutionEngine
+from src.services.trade_service import TradeService
+from src.utils.error_parser import ErrorParser, FormattedError
 
 logger = logging.getLogger(__name__)
 WIB_TZ = timezone("Asia/Jakarta")
 
 
 class TelegramService:
-    """
-    Service Interface Telegram Async Modern.
-    Menerima sinyal, memicu konfirmasi interactive inline button,
-    perintah interaktif (/status, /summary, /close),
-    menyimpan data sinyal/trade ke DB, dan menghubungkan eksekusi ke Binance.
+    """Async Telegram bot interface for receiving signals and controlling the bot.
+
+    Handles:
+    - Incoming messages → signal parsing → DB persistence → execution.
+    - Low-confidence signals with interactive inline Yes/No confirmation.
+    - Commands: ``/account``, ``/status``, ``/summary``, ``/close``.
     """
 
     def __init__(self, execution_engine: BinanceExecutionEngine, token: str = None, allowed_chat_id: int = None):
@@ -32,8 +37,7 @@ class TelegramService:
         self._register_handlers()
 
     async def _setup_bot_commands(self, application: Application):
-        """Mendaftarkan menu tombol auto-complete perintah ke Telegram."""
-        from telegram import BotCommand
+        """Register the bot's command menu in Telegram (auto-complete hints)."""
         commands = [
             BotCommand("account", "Cek saldo & info akun Binance"),
             BotCommand("status", "Cek posisi trading & order aktif"),
@@ -51,7 +55,7 @@ class TelegramService:
         self.app.add_handler(CallbackQueryHandler(self._on_confirmation_callback))
 
     async def _cmd_account(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handler perintah /account atau /balance: Menampilkan saldo & informasi akun Binance."""
+        """Handle ``/account`` or ``/balance``: display Binance account info and USDT balance."""
         if not update.effective_chat or update.effective_chat.id != self.allowed_chat_id:
             return
 
@@ -84,10 +88,10 @@ class TelegramService:
 
         except Exception as e:
             logger.error(f"Gagal mengambil saldo Binance: {e}")
-            await update.message.reply_text(f"❌ Gagal mengambil data saldo Binance: {str(e)}")
+            await update.message.reply_text(f"Failed to fetch Binance balance: {str(e)}")
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handler perintah /status atau /positions: Menampilkan posisi aktif."""
+        """Handle ``/status`` or ``/positions``: show currently active trades."""
         if not update.effective_chat or update.effective_chat.id != self.allowed_chat_id:
             return
 
@@ -112,7 +116,7 @@ class TelegramService:
         await update.message.reply_text("\n".join(msg_lines), parse_mode="Markdown")
 
     async def _cmd_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handler perintah /summary atau /performance: Rekapitulasi performa."""
+        """Handle ``/summary`` or ``/performance``: show aggregated trade performance."""
         if not update.effective_chat or update.effective_chat.id != self.allowed_chat_id:
             return
 
@@ -138,7 +142,7 @@ class TelegramService:
         await update.message.reply_text(msg, parse_mode="Markdown")
 
     async def _cmd_close(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handler perintah /close [SYMBOL]: Penutupan darurat / manual dari Telegram."""
+        """Handle ``/close <SYMBOL>``: manually close a position from Telegram."""
         if not update.effective_chat or update.effective_chat.id != self.allowed_chat_id:
             return
 
@@ -228,7 +232,7 @@ class TelegramService:
             await self._process_trade_execution(signal.id, parsed, status_msg)
 
     async def _ask_user_confirmation(self, update: Update, parsed: ParsedSignal, signal_id: int):
-        """Mengirim pesan konfirmasi interaktif dengan tombol Inline (Yes/No)."""
+        """Send an inline Yes/No keyboard asking the user to confirm a low-confidence signal."""
         keyboard = [
             [
                 InlineKeyboardButton("✅ Eksekusi (Yes)", callback_data=f"confirm_exec_{signal_id}"),
@@ -292,82 +296,69 @@ class TelegramService:
             await query.edit_message_text(text="🚫 **Sinyal Dibatalkan oleh Pengguna.**")
 
     async def _process_trade_execution(self, signal_id: int, parsed: ParsedSignal, status_msg):
-        """Memproses alur kalkulasi risk management dan eksekusi order ke Binance."""
-        today_str = datetime.now(WIB_TZ).strftime("%Y-%m-%d")
-
+        """Execute the full risk-calculation → order-submission pipeline for a validated signal."""
         async with AsyncSessionLocal() as session:
             trade_repo = TradeRepository(session)
             signal_repo = SignalRepository(session)
-
-            # 1. Ambil Snapshot Risk Hari Ini
-            daily_risk = await trade_repo.get_daily_risk(today_str)
-            if not daily_risk:
-                # Fallback jika belum ada snapshot: Buat snapshot darurat $1000 @ 2%
-                daily_risk = await trade_repo.create_daily_risk_snapshot(today_str, balance=1000.0, risk_percent=2.0)
-
-            # 2. Ambil Symbol Precision Info dari Exchange
-            symbol_info = await self.execution_engine.fetch_symbol_info(parsed.symbol)
-
-            # 3. Hitung Risk Management & Lot Size
-            risk_res: RiskCalculationResult = RiskCalculatorService.calculate_position(
-                daily_risk_amount=daily_risk.risk_amount,
-                entry_price=parsed.entry_min,
-                stop_loss_price=parsed.sl_price,
-                side=parsed.side,
-                max_leverage=settings.DEFAULT_LEVERAGE,
-                symbol_info=symbol_info
+            trade_service = TradeService(
+                execution_engine=self.execution_engine, 
+                trade_repo=trade_repo, 
+                signal_repo=signal_repo
             )
 
-            if not risk_res.is_valid:
-                await signal_repo.update_signal_status(signal_id, "REJECTED")
-                await status_msg.reply_text(f"❌ *Eksekusi Gagal*: {risk_res.error_message}", parse_mode="Markdown")
+            success_prep, msg_prep, prepared = await trade_service.prepare_trade(signal_id=signal_id, parsed=parsed)
+            
+            if not success_prep:
+                formatted_err = ErrorParser.parse_error(msg_prep)
+                err_text = formatted_err.to_telegram_markdown(symbol=parsed.symbol, side=parsed.side)
+                await status_msg.reply_text(err_text, parse_mode="Markdown")
                 return
 
-            # 4. Buat Record Trade & TradeRisk di DB
-            trade = await trade_repo.create_trade_with_risk(
-                signal_id=signal_id,
-                symbol=parsed.symbol,
-                side=parsed.side,
-                leverage=settings.DEFAULT_LEVERAGE,
-                risk_date=today_str,
-                risk_res=risk_res,
-                tp1_price=parsed.tp_prices[0] if len(parsed.tp_prices) > 0 else None,
-                tp2_price=parsed.tp_prices[1] if len(parsed.tp_prices) > 1 else None,
-                tp3_price=parsed.tp_prices[2] if len(parsed.tp_prices) > 2 else None,
+            pre_info_msg = (
+                f"📊 *PERSIAPAN EKSEKUSI TRADING*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🪙 *Pair & Side*: `{parsed.symbol}` ({parsed.side})\n"
+                f"🎯 *Entry Target*: `{prepared.risk_res.entry_price}`\n"
+                f"🛡 *Stop Loss*: `{prepared.risk_res.stop_loss_price}`\n\n"
+                f"⚙️ *Kalkulasi Risk & Margin:*\n"
+                f"• Total Koin (Size): `{prepared.risk_res.position_size}` {parsed.symbol.replace('USDT', '')}\n"
+                f"• Leverage Terpakai: `{settings.DEFAULT_LEVERAGE}x`\n"
+                f"• Margin Diberdayakan: `${prepared.risk_res.required_margin:,.2f} USDT`\n"
+                f"• Potensi Max Loss (Kerugian): `-${prepared.risk_res.risk_amount:,.2f} USDT` ({prepared.loss_pct:.1f}% Saldo)\n"
+                f"• Sisa Saldo Tersedia: `${prepared.remaining_balance:,.2f} USDT`\n\n"
+                f"⏳ *Mengirim order ke Binance Futures...*"
             )
+            await status_msg.edit_text(pre_info_msg, parse_mode="Markdown")
 
-            # Set trade_repo ke execution engine
-            self.execution_engine.trade_repo = trade_repo
+            success_exec, msg_exec, exec_res = await trade_service.execute_trade(prepared=prepared)
 
-            # 5. Eksekusi ke Binance Execution Engine
-            exec_res = await self.execution_engine.execute_trade_pipeline(
-                trade_id=trade.id,
-                symbol=parsed.symbol,
-                side=parsed.side,
-                risk_res=risk_res,
-                tp_prices=parsed.tp_prices,
-                leverage=settings.DEFAULT_LEVERAGE,
-                symbol_info=symbol_info
-            )
+            if success_exec:
+                actual_entry = exec_res.actual_entry_price or prepared.risk_res.entry_price
+                actual_margin = exec_res.actual_margin or prepared.risk_res.required_margin
+                actual_sl_loss = exec_res.actual_sl_loss or prepared.risk_res.risk_amount
 
-            if exec_res.success:
-                await signal_repo.update_signal_status(signal_id, "EXECUTED")
-                await status_msg.reply_text(
-                    f"🚀 *ORDER BERHASIL DIKIRIM KE BINANCE!*\n\n"
-                    f"• Trade ID: `#{trade.id}`\n"
+                post_info_msg = (
+                    f"🚀 *ORDER BERHASIL DIEKSEKUSI DI BINANCE!*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"• Trade ID: `#{prepared.trade_id}`\n"
                     f"• Symbol: `{parsed.symbol}` ({parsed.side})\n"
-                    f"• Type: `{exec_res.execution_type}`\n"
-                    f"• Position Size: `{risk_res.position_size}`\n"
-                    f"• Entry Price: `{risk_res.entry_price}`\n"
-                    f"• Stop Loss: `{risk_res.stop_loss_price}`\n"
-                    f"• Required Margin: `${risk_res.required_margin:.2f} USDT`",
-                    parse_mode="Markdown"
+                    f"• Tipe Order: `{exec_res.execution_type}`\n\n"
+                    f"💰 *Detail Posisi Realita Binance:*\n"
+                    f"• Harga Beli Riil (Entry): `{actual_entry}` USDT\n"
+                    f"• Total Koin (Qty): `{prepared.risk_res.position_size}` {parsed.symbol.replace('USDT', '')}\n"
+                    f"• Total Margin Terpakai: `${actual_margin:,.2f} USDT`\n"
+                    f"• Potensi Kerugian SL Riil: `-${actual_sl_loss:,.2f} USDT`\n"
+                    f"• Entry Order ID: `{exec_res.entry_order_id}`\n"
+                    f"• SL Order ID: `{exec_res.sl_order_id or 'Pending/Auto'}`\n\n"
+                    f"✅ *Posisi aktif dan dipantau oleh sistem!*"
                 )
+                await status_msg.reply_text(post_info_msg, parse_mode="Markdown")
             else:
-                await signal_repo.update_signal_status(signal_id, "REJECTED")
-                await status_msg.reply_text(f"❌ *Eksekusi Binance Gagal*: {exec_res.error_message}", parse_mode="Markdown")
+                formatted_err = ErrorParser.parse_error(msg_exec)
+                err_text = formatted_err.to_telegram_markdown(symbol=parsed.symbol, side=parsed.side)
+                await status_msg.reply_text(err_text, parse_mode="Markdown")
 
     def run(self):
-        """Menjalankan bot dalam mode polling."""
-        logger.info("Telegram Bot Listener berjalan...")
+        """Start the bot in polling mode (blocking)."""
+        logger.info("Telegram Bot Listener started.")
         self.app.run_polling()
