@@ -68,13 +68,23 @@ class BinanceStreamListener:
 
         logger.debug(f"[WS Event] Order ID: {binance_order_id} | Status: {status} | Filled: {filled_qty}")
 
-        # 1. Query Order dari Database menggunakan SQLAlchemy select
-        stmt = select(Order).where(Order.binance_order_id == binance_order_id)
-        result = await self.trade_repo.session.execute(stmt)
-        order = result.scalar_one_or_none()
+        # 1. Query Order dari Database menggunakan SQLAlchemy select (dengan Retry jika terjadi Race Condition)
+        order = None
+        max_retries = 3
+        retry_delay = 0.3
+
+        for attempt in range(max_retries):
+            stmt = select(Order).where(Order.binance_order_id == binance_order_id)
+            result = await self.trade_repo.session.execute(stmt)
+            order = result.scalar_one_or_none()
+            if order:
+                break
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
 
         if not order:
-            return  # Order bukan milik bot ini
+            logger.debug(f"[WS Event] Order ID {binance_order_id} not found in DB after retries. Skipping.")
+            return
 
         trade = await self.trade_repo.session.get(Trade, order.trade_id)
         if not trade:

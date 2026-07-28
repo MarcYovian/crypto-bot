@@ -101,10 +101,39 @@ async def test_cmd_close_handler(mock_execution_engine):
 
     with patch("src.repository.trade_repository.TradeRepository.get_active_trades", AsyncMock(return_value=[mock_active_trade])), \
          patch("src.repository.trade_repository.TradeRepository.update_trade_status", AsyncMock()), \
-         patch("src.repository.trade_repository.TradeRepository.log_event", AsyncMock()):
+         patch("src.repository.trade_repository.TradeRepository.log_event", AsyncMock()), \
+         patch("src.repository.trade_repository.TradeRepository.save_summary", AsyncMock()) as mock_summary:
 
         await service._cmd_close(update, context)
         mock_execution_engine.exchange.create_order.assert_called_with(
             symbol="BTCUSDT", type="market", side="sell", amount=0.02, params={"reduceOnly": True}
         )
+        # Verify Bug #4 fix: remaining orders canceled and summary saved
+        mock_execution_engine.exchange.cancel_all_orders.assert_called_with("BTCUSDT")
+        mock_summary.assert_called_once()
         update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_confirmation_callback_cancel_sets_rejected(mock_execution_engine):
+    """Test Bug #1 fix: confirm_cancel_ callback sets confirmation_status to REJECTED."""
+    service = TelegramService(
+        execution_engine=mock_execution_engine,
+        token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+        allowed_chat_id=998877
+    )
+
+    query = MagicMock()
+    query.data = "confirm_cancel_42"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    update = MagicMock(callback_query=query)
+
+    with patch("src.repository.signal_repository.SignalRepository.update_confirmation_status", AsyncMock()) as mock_conf, \
+         patch("src.repository.signal_repository.SignalRepository.update_signal_status", AsyncMock()) as mock_status:
+
+        await service._on_confirmation_callback(update, MagicMock())
+
+        mock_conf.assert_called_once_with(42, "REJECTED")
+        mock_status.assert_called_once_with(42, "REJECTED")
+        query.edit_message_text.assert_called_once()

@@ -13,6 +13,7 @@ from src.repository.trade_repository import TradeRepository
 from src.services.signal_parser import SignalParserService, ParsedSignal
 from src.services.risk_calculator import RiskCalculatorService, RiskCalculationResult
 from src.services.execution_engine import BinanceExecutionEngine
+from src.services.position_manager import PositionManager
 from src.services.trade_service import TradeService
 from src.utils.error_parser import ErrorParser, FormattedError
 
@@ -162,7 +163,7 @@ class TelegramService:
                 await update.message.reply_text(f"ℹ️ Tidak ditemukan posisi aktif untuk `{symbol}` di database.", parse_mode="Markdown")
                 return
 
-            # Tutup di Binance via CCXT
+            # Tutup di Binance via CCXT & delegasikan ke PositionManager
             try:
                 exit_side = "sell" if target_trade.side == "BUY" else "buy"
                 close_order = await self.execution_engine.exchange.create_order(
@@ -174,14 +175,16 @@ class TelegramService:
                 )
                 
                 fill_price = float(close_order.get("price") or close_order.get("average") or target_trade.entry_price)
-                await trade_repo.update_trade_status(target_trade.id, "CLOSED", closed_at=datetime.now())
-                await trade_repo.log_event(target_trade.id, "MANUAL_CLOSE", f'{{"exit_price": {fill_price}}}')
+                
+                # Delegasikan ke PositionManager untuk pembatalan sisa order & perhitungan summary
+                pos_mgr = PositionManager(trade_repo, self.execution_engine)
+                await pos_mgr.close_trade(target_trade, close_reason="MANUAL_CLOSE", exit_price=fill_price)
                 
                 await update.message.reply_text(
                     f"✅ *Berhasil Menutup Posisi {symbol} (MANUAL_CLOSE)*\n\n"
                     f"• Close Price: `{fill_price}`\n"
                     f"• Size: `{target_trade.remaining_qty}`\n"
-                    f"• Status: Posisi resmi ditutup.",
+                    f"• Status: Posisi resmi ditutup, order sisa dibatalkan, summary tersimpan.",
                     parse_mode="Markdown"
                 )
             except Exception as e:
@@ -292,7 +295,7 @@ class TelegramService:
 
             async with AsyncSessionLocal() as session:
                 signal_repo = SignalRepository(session)
-                await signal_repo.update_confirmation_status(signal_id, "APPROVED")
+                await signal_repo.update_confirmation_status(signal_id, "REJECTED")
                 await signal_repo.update_signal_status(signal_id, "REJECTED")
 
             await query.edit_message_text(text="🚫 **Sinyal Dibatalkan oleh Pengguna.**")

@@ -162,7 +162,13 @@ class CronSchedulerService:
                 for trade in active_trades:
                     # Ambil informasi posisi terbuka dari Binance Futures via execution_engine
                     positions = await self.execution_engine.fetch_positions([trade.symbol])
-                    pos = next((p for p in positions if p.get('symbol') == trade.symbol), None)
+                    def _normalize_symbol(sym: str) -> str:
+                        return str(sym or "").replace("/", "").split(":")[0].upper()
+
+                    pos = next(
+                        (p for p in positions if _normalize_symbol(p.get('symbol')) == _normalize_symbol(trade.symbol)),
+                        None
+                    )
 
                     position_qty = abs(float(pos.get('contracts') or pos.get('positionAmt') or 0.0)) if pos else 0.0
 

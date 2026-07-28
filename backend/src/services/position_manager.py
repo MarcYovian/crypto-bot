@@ -80,7 +80,7 @@ class PositionManager:
             if trade.tp1_price:
                 await self._move_sl_to_tp1(trade)
 
-        elif purpose in ["TP3", "SL", "BEP_SL", "MANUAL_CLOSE"]:
+        elif purpose in ["TP3", "SL", "BEP_SL", "TRAIL_SL", "MANUAL_CLOSE"]:
             close_reason = purpose
             await self.close_trade(trade, close_reason=close_reason, exit_price=fill_price)
 
@@ -159,7 +159,7 @@ class PositionManager:
 
                 await self.trade_repo.create_order(
                     trade_id=trade.id,
-                    purpose="BEP_SL",
+                    purpose="TRAIL_SL",
                     order_type="STOP_MARKET",
                     side="SELL" if trade.side == "BUY" else "BUY",
                     qty=trade.remaining_qty,
