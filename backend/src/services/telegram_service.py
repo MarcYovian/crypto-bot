@@ -130,13 +130,15 @@ class TelegramService:
             return
 
         win_emoji = "🟢" if summary["total_net_pnl"] >= 0 else "🔴"
+        funding_str = f"• Total Funding Fee: `-${summary['total_funding']:.2f}`\n" if summary.get('total_funding') else ""
         msg = (
             f"📊 *REKAPITULASI PERFORMA TRADING (SYSTEM V2)*\n\n"
             f"• Total Sinyal Selesai: `{total}` Trade\n"
             f"• Win Rate: `{summary['winrate']:.1f}%` (`{summary['winning_trades']}` Win / `{summary['losing_trades']}` Loss)\n\n"
             f"💰 *Detail Keuangan (USDT):*\n"
             f"• Gross PnL: `${summary['total_gross_pnl']:+.2f}`\n"
-            f"• Est. Komisi Binance: `-${summary['total_commission']:.2f}`\n\n"
+            f"• Est. Komisi Binance: `-${summary['total_commission']:.2f}`\n"
+            f"{funding_str}\n"
             f"{win_emoji} *NET PnL BERSIH: `${summary['total_net_pnl']:+.2f} USDT`*"
         )
         await update.message.reply_text(msg, parse_mode="Markdown")

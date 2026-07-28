@@ -239,7 +239,8 @@ class TradeRepository:
         win: int,
         duration_seconds: int,
         close_reason: str,
-        closed_at: datetime
+        closed_at: datetime,
+        funding: float = 0.0
     ) -> TradeSummary:
         """Persist the performance summary after a trade is closed."""
         summary = TradeSummary(
@@ -247,6 +248,7 @@ class TradeRepository:
             gross_pnl=gross_pnl,
             net_pnl=net_pnl,
             commission=commission,
+            funding=funding,
             roi=roi,
             rr=rr,
             win=win,
@@ -293,7 +295,8 @@ class TradeRepository:
             func.sum(TradeSummary.win).label("winning_trades"),
             func.sum(TradeSummary.gross_pnl).label("total_gross_pnl"),
             func.sum(TradeSummary.net_pnl).label("total_net_pnl"),
-            func.sum(TradeSummary.commission).label("total_commission")
+            func.sum(TradeSummary.commission).label("total_commission"),
+            func.sum(TradeSummary.funding).label("total_funding")
         )
         result = await self.session.execute(stmt)
         row = result.first()
@@ -301,7 +304,7 @@ class TradeRepository:
             return {
                 "total_trades": 0, "winning_trades": 0, "losing_trades": 0,
                 "winrate": 0.0, "total_gross_pnl": 0.0, "total_net_pnl": 0.0,
-                "total_commission": 0.0
+                "total_commission": 0.0, "total_funding": 0.0
             }
 
         total = row.total_trades or 0
@@ -316,7 +319,8 @@ class TradeRepository:
             "winrate": winrate,
             "total_gross_pnl": row.total_gross_pnl or 0.0,
             "total_net_pnl": row.total_net_pnl or 0.0,
-            "total_commission": row.total_commission or 0.0
+            "total_commission": row.total_commission or 0.0,
+            "total_funding": row.total_funding or 0.0
         }
 
     async def get_expired_waiting_trades(self, max_hours: int = 4) -> List[Trade]:

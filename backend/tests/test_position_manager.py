@@ -59,13 +59,36 @@ async def test_handle_order_fill_tp1_moves_sl_to_bep(mock_trade_repo, mock_execu
 async def test_close_trade_generates_summary(mock_trade_repo, mock_execution_engine, sample_trade):
     pm = PositionManager(mock_trade_repo, mock_execution_engine)
 
-    sl_order = Order(id=11, trade_id=1, purpose="SL", side="SELL", qty=0.02)
+    await pm.close_trade(sample_trade, close_reason="TP3", exit_price=65000.0)
 
-    await pm.handle_order_fill(sample_trade, sl_order, fill_price=59000.0, fill_qty=0.02)
-
-    # Verifikasi status CLOSED & remaining orders dicancel
-    mock_trade_repo.update_trade_status.assert_called()
+    # Verifikasi status CLOSED & pembatalan sisa order di Binance
+    assert mock_trade_repo.update_trade_status.called
+    assert mock_trade_repo.update_trade_status.call_args[0][0] == 1
+    assert mock_trade_repo.update_trade_status.call_args[0][1] == "CLOSED"
     mock_execution_engine.exchange.cancel_all_orders.assert_called_with("BTCUSDT")
 
-    # Verifikasi Summary dibuat
+    # Verifikasi summary tersimpan
     mock_trade_repo.save_summary.assert_called_once()
+    summary_kwargs = mock_trade_repo.save_summary.call_args[1]
+    assert summary_kwargs['win'] == 1
+    assert summary_kwargs['close_reason'] == "TP3"
+
+
+@pytest.mark.asyncio
+async def test_handle_order_fill_tp2_moves_sl_to_tp1(mock_trade_repo, mock_execution_engine, sample_trade):
+    """Test bahwa ketika TP2 hit, Stop Loss otomatis digeser ke harga TP1 (Trailing Stop)."""
+    sample_trade.tp1_price = 62000.0
+    pm = PositionManager(mock_trade_repo, mock_execution_engine)
+
+    tp2_order = Order(id=11, trade_id=1, purpose="TP2", side="SELL", qty=0.005)
+
+    await pm.handle_order_fill(sample_trade, tp2_order, fill_price=64000.0, fill_qty=0.005)
+
+    # Verifikasi status trade diupdate ke PARTIAL
+    mock_trade_repo.update_trade_status.assert_called_with(1, "PARTIAL")
+
+    # Verifikasi SL digeser ke harga TP1 ($62,000)
+    mock_execution_engine.exchange.create_order.assert_called_once()
+    call_args = mock_execution_engine.exchange.create_order.call_args[1]
+    assert call_args['params']['stopPrice'] == 62000.0
+    mock_trade_repo.log_event.assert_called_with(1, "SL_MOVED_TO_TP1", '{"tp1_price": 62000.0}')

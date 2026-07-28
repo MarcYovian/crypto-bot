@@ -317,7 +317,7 @@ class TradeEvent(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "event_type IN ('ENTRY','TP1','TP2','TP3','SL','SL_MOVED_TO_BEP','TRAILING_ENABLED','MANUAL_CLOSE','FORCE_CLOSE','FUNDING')",
+            "event_type IN ('ENTRY','TP1','TP2','TP3','SL','SL_MOVED_TO_BEP','SL_MOVED_TO_TP1','TRAILING_ENABLED','MANUAL_CLOSE','FORCE_CLOSE','FAILSAFE_SYNC','FUNDING')",
             name="chk_event_type"
         ),
         Index("idx_trade_events_trade", "trade_id"),

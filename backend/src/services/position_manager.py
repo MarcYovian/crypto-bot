@@ -77,6 +77,8 @@ class PositionManager:
         elif purpose == "TP2":
             await self.trade_repo.update_trade_status(trade.id, "PARTIAL")
             await self.trade_repo.log_event(trade.id, "TP2", f'{{"fill_price": {fill_price}}}')
+            if trade.tp1_price:
+                await self._move_sl_to_tp1(trade)
 
         elif purpose in ["TP3", "SL", "BEP_SL", "MANUAL_CLOSE"]:
             close_reason = purpose
@@ -125,6 +127,53 @@ class PositionManager:
         except Exception as e:
             logger.error(f"[Trade #{trade.id}] Failed to move SL to BEP: {str(e)}")
 
+    async def _move_sl_to_tp1(self, trade: Trade) -> None:
+        """Trailing Stop: Move the stop-loss to TP1 price when TP2 is hit."""
+        if not trade.tp1_price:
+            return
+
+        tp1_price = trade.tp1_price
+        logger.info(f"[Trade #{trade.id}] Trailing Stop: Moving SL to TP1 @ {tp1_price}")
+
+        try:
+            if self.execution_engine:
+                exit_side = 'sell' if trade.side == 'BUY' else 'buy'
+
+                # Batalkan SL/BEP_SL sebelumnya jika ada
+                try:
+                    await self.execution_engine.exchange.cancel_all_orders(trade.symbol)
+                except Exception as err:
+                    logger.debug(f"Cancel existing orders note [{trade.symbol}]: {err}")
+
+                # Pasang SL Baru di harga TP1 (Trailing Step-up)
+                new_sl_order = await self.execution_engine.exchange.create_order(
+                    symbol=trade.symbol,
+                    type='STOP_MARKET',
+                    side=exit_side,
+                    amount=trade.remaining_qty,
+                    params={
+                        'stopPrice': tp1_price,
+                        'reduceOnly': True
+                    }
+                )
+
+                await self.trade_repo.create_order(
+                    trade_id=trade.id,
+                    purpose="BEP_SL",
+                    order_type="STOP_MARKET",
+                    side="SELL" if trade.side == "BUY" else "BUY",
+                    qty=trade.remaining_qty,
+                    price=tp1_price,
+                    binance_order_id=str(new_sl_order['id'])
+                )
+
+            await self.trade_repo.log_event(
+                trade.id, "SL_MOVED_TO_TP1", f'{{"tp1_price": {tp1_price}}}'
+            )
+
+        except Exception as e:
+            logger.error(f"[Trade #{trade.id}] Failed to move SL to TP1: {str(e)}")
+
     async def close_trade(self, trade: Trade, close_reason: str, exit_price: float) -> None:
         """Close a trade, cancel remaining orders, and persist the performance summary."""
         closed_at = datetime.now()
@@ -141,7 +190,7 @@ class PositionManager:
         await self._generate_trade_summary(trade, close_reason, exit_price, closed_at)
 
     async def _generate_trade_summary(self, trade: Trade, close_reason: str, exit_price: float, closed_at: datetime) -> None:
-        """Calculate and persist PnL, ROI, R:R, duration, and win/loss for the closed trade."""
+        """Calculate and persist PnL, ROI, R:R, duration, funding fee, and win/loss for the closed trade."""
         entry_price = trade.entry_price or trade.avg_entry_price or 1.0
         
         # Hitung Gross PNL
@@ -152,7 +201,22 @@ class PositionManager:
 
         # Perkiraan komisi Taker Binance (0.05%)
         total_commission = (entry_price + exit_price) * trade.position_size * 0.0005
-        net_pnl = gross_pnl - total_commission
+
+        # Fetch actual funding history from Binance if execution engine available
+        funding_fee = 0.0
+        if self.execution_engine:
+            try:
+                opened_ms = int(trade.opened_at.timestamp() * 1000) if trade.opened_at else None
+                funding_income = await self.execution_engine.exchange.fetch_funding_history(
+                    symbol=trade.symbol,
+                    since=opened_ms
+                )
+                for item in funding_income:
+                    funding_fee += abs(float(item.get('amount') or 0.0))
+            except Exception as err:
+                logger.debug(f"[Trade #{trade.id}] Funding fee fetch note: {err}")
+
+        net_pnl = gross_pnl - total_commission - funding_fee
         
         # Durasi
         opened_at = trade.opened_at or trade.created_at or closed_at
@@ -172,6 +236,7 @@ class PositionManager:
             gross_pnl=gross_pnl,
             net_pnl=net_pnl,
             commission=total_commission,
+            funding=funding_fee,
             roi=roi,
             rr=rr,
             win=win,
@@ -179,4 +244,4 @@ class PositionManager:
             close_reason=close_reason,
             closed_at=closed_at
         )
-        logger.info(f"[Trade #{trade.id}] Summary Saved! Net PNL: ${net_pnl:.2f} | Win: {win} | Reason: {close_reason}")
+        logger.info(f"[Trade #{trade.id}] Summary Saved! Net PNL: ${net_pnl:.2f} | Funding: ${funding_fee:.4f} | Win: {win} | Reason: {close_reason}")
