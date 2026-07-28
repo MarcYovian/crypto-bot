@@ -218,6 +218,12 @@ class TradeRepository:
         await self.session.commit()
         return execution
 
+    async def get_trade_executions(self, trade_id: int) -> List[Execution]:
+        """Fetch all execution records linked to a specific trade."""
+        stmt = select(Execution).where(Execution.trade_id == trade_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     # ------------------------------------------------------------------
     # 4. EVENTS & SUMMARY
     # ------------------------------------------------------------------

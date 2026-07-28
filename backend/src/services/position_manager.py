@@ -96,6 +96,12 @@ class PositionManager:
         try:
             if self.execution_engine:
                 exit_side = 'sell' if trade.side == 'BUY' else 'buy'
+
+                # Batalkan SL lama di Binance sebelum pasang SL BEP baru untuk mencegah dual SL active
+                try:
+                    await self.execution_engine.exchange.cancel_all_orders(trade.symbol)
+                except Exception as err:
+                    logger.debug(f"Cancel existing orders note [{trade.symbol}]: {err}")
                 
                 # Pasang SL Baru di BEP
                 new_sl_order = await self.execution_engine.exchange.create_order(
@@ -191,8 +197,26 @@ class PositionManager:
 
     async def _generate_trade_summary(self, trade: Trade, close_reason: str, exit_price: float, closed_at: datetime) -> None:
         """Calculate and persist PnL, ROI, R:R, duration, funding fee, and win/loss for the closed trade."""
-        entry_price = trade.entry_price or trade.avg_entry_price or 1.0
-        
+        entry_price = trade.entry_price or trade.avg_entry_price or 0.0
+
+        # Point B Fix: Jika entry_price maslh 0.0 (misal limit order ditutup sebelum avg_entry_price terupdate),
+        # cari harga rata-rata eksekusi riil dari tabel executions di database.
+        if entry_price <= 0.0 and self.trade_repo:
+            try:
+                executions = await self.trade_repo.get_trade_executions(trade.id)
+                entry_execs = [e for e in executions if e.price > 0.0]
+                if entry_execs:
+                    total_spent = sum(e.price * e.qty for e in entry_execs)
+                    total_qty = sum(e.qty for e in entry_execs)
+                    if total_qty > 0:
+                        entry_price = total_spent / total_qty
+            except Exception as err:
+                logger.debug(f"[Trade #{trade.id}] Executions fallback price note: {err}")
+
+        # Final fallback jika tetap 0.0: gunakan exit_price (menghindari ROI/PnL berlebihan akibat fallback 1.0)
+        if entry_price <= 0.0:
+            entry_price = exit_price or 1.0
+
         # Hitung Gross PNL
         if trade.side == "BUY":
             gross_pnl = (exit_price - entry_price) * trade.position_size

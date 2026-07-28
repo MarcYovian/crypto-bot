@@ -231,18 +231,29 @@ class BinanceExecutionEngine:
             entry_side = 'buy' if side == 'BUY' else 'sell'
             exit_side = 'sell' if side == 'BUY' else 'buy'
 
-            # 4. Kirim Order Entry
+            # 4. Kirim Order Entry (dengan Retry untuk RateLimit & Network Error)
             logger.info(f"[Trade #{trade_id}] Sending {execution_type_str} Entry Order {side} {final_position_size} {symbol}")
 
+            async def _create_order_with_retry(**kwargs):
+                for attempt in range(2):
+                    try:
+                        return await self.exchange.create_order(**kwargs)
+                    except (ccxt.RateLimitExceeded, ccxt.NetworkError) as err:
+                        if attempt == 0:
+                            logger.warning(f"Binance transient network/ratelimit error ({err}). Retrying in 1s...")
+                            await asyncio.sleep(1)
+                        else:
+                            raise err
+
             if use_market_order:
-                entry_order = await self.exchange.create_order(
+                entry_order = await _create_order_with_retry(
                     symbol=symbol,
                     type='market',
                     side=entry_side,
                     amount=final_position_size
                 )
             else:
-                entry_order = await self.exchange.create_order(
+                entry_order = await _create_order_with_retry(
                     symbol=symbol,
                     type='limit',
                     side=entry_side,
