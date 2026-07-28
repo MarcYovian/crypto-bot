@@ -23,6 +23,7 @@ logging.basicConfig(
         logging.FileHandler("bot.log", encoding="utf-8")
     ]
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("MAIN")
 
 
