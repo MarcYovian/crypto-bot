@@ -49,18 +49,19 @@ async def main():
         trade_repo = TradeRepository(session)
         position_manager = PositionManager(trade_repo, execution_engine)
 
-        cron_scheduler = CronSchedulerService(execution_engine)
-        cron_scheduler.start()
-        await cron_scheduler.run_initial_daily_risk_check()
-
-        ws_listener = BinanceStreamListener(trade_repo, position_manager)
-        ws_task = asyncio.create_task(ws_listener.start())
-
         telegram_service = TelegramService(
             execution_engine=execution_engine,
             token=settings.TELEGRAM_BOT_TOKEN,
             allowed_chat_id=settings.TELEGRAM_CHAT_ID
         )
+
+        cron_scheduler = CronSchedulerService(
+            execution_engine=execution_engine,
+            telegram_bot=telegram_service.app.bot
+        )
+        cron_scheduler.start()
+        ws_listener = BinanceStreamListener(trade_repo, position_manager)
+        ws_task = asyncio.create_task(ws_listener.start())
 
         logger.info("All Bot Modules Active & Running! Listening for Signals...")
 

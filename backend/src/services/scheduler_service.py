@@ -10,6 +10,8 @@ from src.database.connection import AsyncSessionLocal
 from src.repository.trade_repository import TradeRepository
 from src.services.execution_engine import BinanceExecutionEngine
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 WIB_TZ = timezone("Asia/Jakarta")
 
@@ -25,9 +27,10 @@ class CronSchedulerService:
        positions as a safety net for WebSocket reconnection gaps (runs every 15 min).
     """
 
-    def __init__(self, execution_engine: BinanceExecutionEngine):
+    def __init__(self, execution_engine: BinanceExecutionEngine, telegram_bot=None):
         self.scheduler = AsyncIOScheduler(timezone=WIB_TZ)
         self.execution_engine = execution_engine
+        self.telegram_bot = telegram_bot
 
     def start(self):
         """Register all cron jobs and start the APScheduler instance."""
@@ -97,6 +100,24 @@ class CronSchedulerService:
                     risk_percent=risk_pct
                 )
                 logger.info(f"Daily risk snapshot saved! Balance: ${snapshot.balance:.2f} | Risk Amount: ${snapshot.risk_amount:.2f}")
+
+                # Send report notification to Telegram if bot instance is available
+                if self.telegram_bot and settings.TELEGRAM_CHAT_ID:
+                    report_msg = (
+                        f"🌅 *SNAPSHOT RISIKO HARIAN ({today_str})*\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"💰 *Saldo Akun Binance*: `${snapshot.balance:,.2f} USDT`\n"
+                        f"🛡 *Batas Risk Harian ({risk_pct}%)*: `${snapshot.risk_amount:,.2f} USDT`\n\n"
+                        f"✅ *Batas risiko harian berhasil dikunci dan siap digunakan!*"
+                    )
+                    try:
+                        await self.telegram_bot.send_message(
+                            chat_id=settings.TELEGRAM_CHAT_ID,
+                            text=report_msg,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as err:
+                        logger.error(f"Failed to send Telegram daily risk report: {err}")
 
         except Exception as e:
             logger.error(f"Cron daily risk snapshot error: {str(e)}")
