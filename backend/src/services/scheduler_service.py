@@ -175,12 +175,18 @@ class CronSchedulerService:
                     if trade.status == "WAITING_ENTRY" and position_qty > 0:
                         logger.info(f"[Failsafe Sync] Limit #{trade.id} ({trade.symbol}) FILLED on Binance. Syncing DB -> OPEN.")
                         await trade_repo.update_trade_status(trade.id, "OPEN")
-                        await trade_repo.log_event(trade.id, "FAILSAFE_SYNC", f'{{"status": "OPEN", "qty": {position_qty}}}')
+                        try:
+                            await trade_repo.log_event(trade.id, "FAILSAFE_SYNC", f'{{"status": "OPEN", "qty": {position_qty}}}')
+                        except Exception as log_err:
+                            logger.warning(f"Failsafe sync event log warning: {log_err}")
 
                     elif trade.status in ["OPEN", "PARTIAL"] and position_qty == 0:
                         logger.info(f"[Failsafe Sync] Trade #{trade.id} ({trade.symbol}) CLOSED on Binance. Syncing DB -> CLOSED.")
                         await trade_repo.update_trade_status(trade.id, "CLOSED", closed_at=datetime.now())
-                        await trade_repo.log_event(trade.id, "FAILSAFE_SYNC", '{"status": "CLOSED"}')
+                        try:
+                            await trade_repo.log_event(trade.id, "FAILSAFE_SYNC", '{"status": "CLOSED"}')
+                        except Exception as log_err:
+                            logger.warning(f"Failsafe sync event log warning: {log_err}")
 
         except Exception as e:
             logger.error(f"Cron failsafe sync check error: {str(e)}")

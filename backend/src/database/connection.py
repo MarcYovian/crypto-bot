@@ -6,15 +6,26 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlite3 import Connection as SQLite3Connection
 
 import os
+from config.settings import settings
 
-DB_DIR = os.path.join(os.getcwd(), "data")
-os.makedirs(DB_DIR, exist_ok=True)
-DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(DB_DIR, 'trading_bot.db')}"
+# Prefer DATABASE_URL from settings/env if configured; fallback to local SQLite
+if settings.DATABASE_URL:
+    DATABASE_URL = settings.DATABASE_URL
+else:
+    DB_DIR = os.path.join(os.getcwd(), "data")
+    os.makedirs(DB_DIR, exist_ok=True)
+    DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(DB_DIR, 'trading_bot.db')}"
 
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-)
+# Configure engine arguments based on dialect
+engine_kwargs = {"echo": False}
+if DATABASE_URL.startswith("postgresql"):
+    engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_pre_ping": True
+    })
+
+engine = create_async_engine(DATABASE_URL, **engine_kwargs)
 
 
 @event.listens_for(engine.sync_engine, "connect")

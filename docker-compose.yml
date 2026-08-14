@@ -1,28 +1,32 @@
 version: '3.8'
 
 services:
-  crypto-bot:
-    build: .
-    container_name: crypto-bot
-    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto_bot_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: cryptobot
+      POSTGRES_PASSWORD: cryptobot_pass
+      POSTGRES_DB: cryptobot_db
+    ports:
+      - "5433:5432"
     volumes:
-      # Mount database SQLite & folder logs agar data & log transaksi tetap tersimpan saat container di-restart
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - postgres_data:/var/lib/postgresql/data
+
+  crypto-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto_bot_app
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db
+      BINANCE_TESTNET: "True"
     env_file:
       - .env
-    environment:
-      - PYTHONUNBUFFERED=1
-      - BINANCE_API_KEY=${BINANCE_API_KEY}
-      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - BINANCE_TESTNET=${BINANCE_TESTNET}
-      - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE}
-      - CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD}
-      - LOG_LEVEL=${LOG_LEVEL}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
+
+volumes:
+  postgres_data:

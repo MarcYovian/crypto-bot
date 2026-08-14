@@ -61,7 +61,13 @@ class BinanceStreamListener:
         For filled (``closed``) orders the method also records the execution
         fill and forwards the event to :meth:`PositionManager.handle_order_fill`.
         """
+        if not order_data or not isinstance(order_data, dict):
+            return
+
         binance_order_id = str(order_data.get('id'))
+        if not binance_order_id or binance_order_id == "None":
+            return
+
         status = order_data.get('status')  # 'closed' (FILLED), 'canceled', dll.
         filled_qty = float(order_data.get('filled') or 0.0)
         avg_price = float(order_data.get('average') or order_data.get('price') or 0.0)
