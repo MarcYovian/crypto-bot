@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: SMC CryptoBot Dashboard API
   version: 2.0.0
@@ -104,7 +104,8 @@ paths:
                     type: string
                   token_type:
                     type: string
-                    example: bearer
+                    examples:
+                      - bearer
         '401':
           description: Expired or invalid refresh token
 
@@ -369,10 +370,12 @@ paths:
               properties:
                 symbol:
                   type: string
-                  example: BTCUSDT
+                  examples:
+                    - BTCUSDT
                 enabled:
                   type: boolean
-                  example: true
+                  examples:
+                    - true
       responses:
         '200':
           description: Watchlist item updated
@@ -586,7 +589,8 @@ paths:
                 confirmation:
                   type: boolean
                   description: Must be true to confirm emergency action
-                  example: true
+                  examples:
+                    - true
       responses:
         '200':
           description: Panic close execution summary
@@ -682,7 +686,8 @@ paths:
           in: query
           schema:
             type: string
-            example: sig-a1b2c3d4
+            examples:
+              - sig-a1b2c3d4
         - name: limit
           in: query
           schema:
@@ -756,10 +761,12 @@ components:
       properties:
         username:
           type: string
-          example: admin
+          examples:
+            - admin
         password:
           type: string
-          example: SuperSecureAdminPass123!
+          examples:
+            - SuperSecureAdminPass123!
 
     LoginResponse:
       type: object
@@ -768,7 +775,8 @@ components:
           type: string
         token_type:
           type: string
-          example: bearer
+          examples:
+            - bearer
         user:
           $ref: '#/components/schemas/UserDTO'
 
@@ -777,53 +785,68 @@ components:
       properties:
         id:
           type: integer
-          example: 1
+          examples:
+            - 1
         username:
           type: string
-          example: admin
+          examples:
+            - admin
         role:
           type: string
-          example: ADMIN
+          examples:
+            - ADMIN
 
     AnalyticsSummaryDTO:
       type: object
       properties:
         total_balance_usdt:
           type: number
-          example: 10450.50
+          examples:
+            - 10450.50
         free_margin_usdt:
           type: number
-          example: 9800.20
+          examples:
+            - 9800.20
         daily_realized_pnl:
           type: number
-          example: 45.50
+          examples:
+            - 45.50
         daily_pnl_percent:
           type: number
-          example: 0.45
+          examples:
+            - 0.45
         daily_risk_budget:
           type: number
-          example: 200.00
+          examples:
+            - 200.00
         remaining_risk_budget:
           type: number
-          example: 154.50
+          examples:
+            - 154.50
         win_rate:
           type: number
-          example: 72.5
+          examples:
+            - 72.5
         total_trades_count:
           type: integer
-          example: 40
+          examples:
+            - 40
         winning_trades_count:
           type: integer
-          example: 29
+          examples:
+            - 29
         losing_trades_count:
           type: integer
-          example: 11
+          examples:
+            - 11
         profit_factor:
           type: number
-          example: 2.85
+          examples:
+            - 2.85
         active_trades_count:
           type: integer
-          example: 2
+          examples:
+            - 2
 
     EquityPointDTO:
       type: object
@@ -833,55 +856,70 @@ components:
           format: date-time
         balance:
           type: number
-          example: 10250.00
+          examples:
+            - 10250.00
         pnl:
           type: number
-          example: 25.00
+          examples:
+            - 25.00
 
     ActiveTradeDTO:
       type: object
       properties:
         trade_id:
           type: integer
-          example: 101
+          examples:
+            - 101
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
           enum: [BUY, SELL]
-          example: BUY
+          examples:
+            - BUY
         status:
           type: string
           enum: [WAITING_ENTRY, OPEN, PARTIAL]
-          example: OPEN
+          examples:
+            - OPEN
         entry_price:
           type: number
-          example: 50000.00
+          examples:
+            - 50000.00
         current_price:
           type: number
-          example: 50600.00
+          examples:
+            - 50600.00
         sl_price:
           type: number
-          example: 49000.00
+          examples:
+            - 49000.00
         position_size:
           type: number
-          example: 0.02
+          examples:
+            - 0.02
         remaining_qty:
           type: number
-          example: 0.02
+          examples:
+            - 0.02
         unrealized_pnl:
           type: number
-          example: 12.00
+          examples:
+            - 12.00
         unrealized_pnl_percent:
           type: number
-          example: 1.20
+          examples:
+            - 1.20
         leverage:
           type: integer
-          example: 20
+          examples:
+            - 20
         margin_mode:
           type: string
-          example: ISOLATED
+          examples:
+            - ISOLATED
         tp_levels:
           type: array
           items:
@@ -902,13 +940,16 @@ components:
       properties:
         total:
           type: integer
-          example: 120
+          examples:
+            - 120
         page:
           type: integer
-          example: 1
+          examples:
+            - 1
         page_size:
           type: integer
-          example: 20
+          examples:
+            - 20
         items:
           type: array
           items:
@@ -919,35 +960,45 @@ components:
       properties:
         id:
           type: integer
-          example: 45
+          examples:
+            - 45
         symbol:
           type: string
-          example: ETHUSDT
+          examples:
+            - ETHUSDT
         side:
           type: string
-          example: BUY
+          examples:
+            - BUY
         entry_price:
           type: number
-          example: 3000.00
+          examples:
+            - 3000.00
         exit_price:
           type: number
-          example: 3150.00
+          examples:
+            - 3150.00
         position_size:
           type: number
-          example: 0.50
+          examples:
+            - 0.50
         net_pnl:
           type: number
-          example: 75.00
+          examples:
+            - 75.00
         roi_percent:
           type: number
-          example: 5.00
+          examples:
+            - 5.00
         result:
           type: string
           enum: [WIN, LOSS, BREAKEVEN, CANCELLED]
-          example: WIN
+          examples:
+            - WIN
         close_reason:
           type: string
-          example: TP3_HIT
+          examples:
+            - TP3_HIT
         opened_at:
           type: string
           format: date-time
@@ -1065,15 +1116,18 @@ components:
           type: integer
         trace_id:
           type: string
-          example: sig-a1b2c3d4
+          examples:
+            - sig-a1b2c3d4
         raw_text:
           type: string
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
-          example: BUY
+          examples:
+            - BUY
         entry_price:
           type: number
         sl_price:
@@ -1084,10 +1138,12 @@ components:
             type: number
         confidence_score:
           type: number
-          example: 0.95
+          examples:
+            - 0.95
         status:
           type: string
-          example: PROCESSED
+          examples:
+            - PROCESSED
         created_at:
           type: string
           format: date-time
@@ -1098,25 +1154,31 @@ components:
       properties:
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
           enum: [BUY, SELL]
-          example: BUY
+          examples:
+            - BUY
         entry_price:
           type: number
-          example: 50000.00
+          examples:
+            - 50000.00
         sl_price:
           type: number
-          example: 49000.00
+          examples:
+            - 49000.00
         tp_targets:
           type: array
           items:
             type: number
-          example: [51000.00, 52000.00, 53000.00]
+          examples:
+            - [51000.00, 52000.00, 53000.00]
         leverage:
           type: integer
-          example: 20
+          examples:
+            - 20
         auto_tp_sl:
           type: boolean
           default: true
@@ -1126,28 +1188,36 @@ components:
       properties:
         is_success:
           type: boolean
-          example: true
+          examples:
+            - true
         trade_id:
           type: integer
-          example: 88
+          examples:
+            - 88
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
-          example: BUY
+          examples:
+            - BUY
         position_size:
           type: number
-          example: 0.02
+          examples:
+            - 0.02
         leverage:
           type: integer
-          example: 20
+          examples:
+            - 20
         entry_order_id:
           type: string
-          example: "12345678"
+          examples:
+            - "12345678"
         sl_order_id:
           type: string
-          example: "12345679"
+          examples:
+            - "12345679"
         tp_order_ids:
           type: array
           items:
@@ -1160,50 +1230,64 @@ components:
           type: integer
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         enabled:
           type: boolean
-          example: true
+          examples:
+            - true
         max_leverage:
           type: integer
-          example: 125
+          examples:
+            - 125
         tick_size:
           type: number
-          example: 0.10
+          examples:
+            - 0.10
         min_qty:
           type: number
-          example: 0.001
+          examples:
+            - 0.001
 
     InstrumentDTO:
       type: object
       properties:
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         base_asset:
           type: string
-          example: BTC
+          examples:
+            - BTC
         quote_asset:
           type: string
-          example: USDT
+          examples:
+            - USDT
         price_precision:
           type: integer
-          example: 2
+          examples:
+            - 2
         qty_precision:
           type: integer
-          example: 3
+          examples:
+            - 3
         tick_size:
           type: number
-          example: 0.10
+          examples:
+            - 0.10
         step_size:
           type: number
-          example: 0.001
+          examples:
+            - 0.001
         min_notional:
           type: number
-          example: 5.0
+          examples:
+            - 5.0
         max_leverage:
           type: integer
-          example: 125
+          examples:
+            - 125
         brackets:
           type: array
           items:
@@ -1225,16 +1309,20 @@ components:
           type: integer
         name:
           type: string
-          example: "Crypto VIP Signals"
+          examples:
+            - "Crypto VIP Signals"
         channel_id:
           type: string
-          example: "-100123456789"
+          examples:
+            - "-100123456789"
         is_active:
           type: boolean
-          example: true
+          examples:
+            - true
         confidence_weight:
           type: number
-          example: 1.0
+          examples:
+            - 1.0
 
     SignalProviderCreateRequest:
       type: object
@@ -1242,10 +1330,12 @@ components:
       properties:
         name:
           type: string
-          example: "Crypto VIP Signals"
+          examples:
+            - "Crypto VIP Signals"
         channel_id:
           type: string
-          example: "-100123456789"
+          examples:
+            - "-100123456789"
         confidence_weight:
           type: number
           default: 1.0
@@ -1259,16 +1349,20 @@ components:
           type: string
         total_signals:
           type: integer
-          example: 50
+          examples:
+            - 50
         executed_trades:
           type: integer
-          example: 45
+          examples:
+            - 45
         win_rate:
           type: number
-          example: 75.0
+          examples:
+            - 75.0
         total_net_pnl_usdt:
           type: number
-          example: 450.25
+          examples:
+            - 450.25
 
     StrategyDTO:
       type: object
@@ -1277,7 +1371,8 @@ components:
           type: integer
         name:
           type: string
-          example: "Standard 3-Stage TP"
+          examples:
+            - "Standard 3-Stage TP"
         tp_allocations:
           type: array
           items:
@@ -1289,10 +1384,12 @@ components:
                 type: number
         bep_trigger_level:
           type: integer
-          example: 1
+          examples:
+            - 1
         trailing_trigger_level:
           type: integer
-          example: 2
+          examples:
+            - 2
         is_active:
           type: boolean
 
@@ -1301,19 +1398,24 @@ components:
       properties:
         tp1_percent:
           type: number
-          example: 50.0
+          examples:
+            - 50.0
         tp2_percent:
           type: number
-          example: 30.0
+          examples:
+            - 30.0
         tp3_percent:
           type: number
-          example: 20.0
+          examples:
+            - 20.0
         bep_trigger_level:
           type: integer
-          example: 1
+          examples:
+            - 1
         trailing_trigger_level:
           type: integer
-          example: 2
+          examples:
+            - 2
 
     RiskSimulationRequest:
       type: object
@@ -1321,20 +1423,25 @@ components:
       properties:
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
           enum: [BUY, SELL]
-          example: BUY
+          examples:
+            - BUY
         entry_price:
           type: number
-          example: 50000.00
+          examples:
+            - 50000.00
         sl_price:
           type: number
-          example: 49000.00
+          examples:
+            - 49000.00
         wallet_balance:
           type: number
-          example: 1000.00
+          examples:
+            - 1000.00
         requested_leverage:
           type: integer
           default: 20
@@ -1347,63 +1454,81 @@ components:
       properties:
         symbol:
           type: string
-          example: BTCUSDT
+          examples:
+            - BTCUSDT
         side:
           type: string
-          example: BUY
+          examples:
+            - BUY
         max_allowed_loss_usdt:
           type: number
           description: Strict 2% of wallet equity
-          example: 20.00
+          examples:
+            - 20.00
         calculated_position_size:
           type: number
-          example: 0.02
+          examples:
+            - 0.02
         required_margin_usdt:
           type: number
-          example: 50.00
+          examples:
+            - 50.00
         effective_leverage:
           type: integer
-          example: 20
+          examples:
+            - 20
         is_leverage_downscaled:
           type: boolean
-          example: false
+          examples:
+            - false
         estimated_liquidation_price:
           type: number
-          example: 47500.00
+          examples:
+            - 47500.00
         stop_distance_usdt:
           type: number
-          example: 1000.00
+          examples:
+            - 1000.00
         projected_loss_at_sl_usdt:
           type: number
-          example: 20.00
+          examples:
+            - 20.00
         is_safe:
           type: boolean
-          example: true
+          examples:
+            - true
 
     BotStatusDTO:
       type: object
       properties:
         is_running:
           type: boolean
-          example: true
+          examples:
+            - true
         is_paused:
           type: boolean
-          example: false
+          examples:
+            - false
         trading_status:
           type: string
-          example: ACTIVE
+          examples:
+            - ACTIVE
         circuit_breaker_active:
           type: boolean
-          example: false
+          examples:
+            - false
         binance_ws_connected:
           type: boolean
-          example: true
+          examples:
+            - true
         telegram_polling_active:
           type: boolean
-          example: true
+          examples:
+            - true
         scheduler_jobs_count:
           type: integer
-          example: 7
+          examples:
+            - 7
         last_heartbeat:
           type: string
           format: date-time
@@ -1413,22 +1538,28 @@ components:
       properties:
         default_leverage:
           type: integer
-          example: 20
+          examples:
+            - 20
         confidence_threshold:
           type: number
-          example: 0.70
+          examples:
+            - 0.70
         risk_percent_per_trade:
           type: number
-          example: 2.0
+          examples:
+            - 2.0
         max_daily_loss_percent:
           type: number
-          example: 6.0
+          examples:
+            - 6.0
         max_open_trades:
           type: integer
-          example: 3
+          examples:
+            - 3
         is_paused:
           type: boolean
-          example: false
+          examples:
+            - false
 
     BotSettingsUpdateRequest:
       type: object
@@ -1466,15 +1597,18 @@ components:
           type: integer
         level:
           type: string
-          example: INFO
+          examples:
+            - INFO
         module:
           type: string
-          example: EXECUTION_ENGINE
+          examples:
+            - EXECUTION_ENGINE
         message:
           type: string
         trace_id:
           type: string
-          example: sig-a1b2c3d4
+          examples:
+            - sig-a1b2c3d4
         created_at:
           type: string
           format: date-time
@@ -1484,17 +1618,21 @@ components:
       properties:
         success:
           type: boolean
-          example: true
+          examples:
+            - true
         message:
           type: string
-          example: "Action completed successfully."
+          examples:
+            - "Action completed successfully."
 
     ErrorResponse:
       type: object
       properties:
         detail:
           type: string
-          example: "Resource not found or invalid operation."
+          examples:
+            - "Resource not found or invalid operation."
         code:
           type: string
-          example: "RESOURCE_NOT_FOUND"
+          examples:
+            - "RESOURCE_NOT_FOUND"
