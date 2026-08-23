@@ -1,20 +1,22 @@
-# Task 01: FastAPI Application Setup & JWT Authentication
+# Task 01: FastAPI Application Setup, JWT Authentication & In-Memory Cache Layer
 
 ## 1. Deskripsi Task
-Mempersiapkan fondasi aplikasi FastAPI, konfigurasi CORS middleware, utilitas keamanan password hashing & JWT token (Access Token + Refresh Token), dependency injection database session & autentikasi, serta mengimplementasikan modul autentikasi admin (`/api/v1/auth`).
+Mempersiapkan fondasi aplikasi FastAPI, konfigurasi CORS middleware, utilitas keamanan password hashing & JWT token (Access Token + Refresh Token), dependency injection database session & autentikasi, mengimplementasikan modul autentikasi admin (`/api/v1/auth`), serta membangun **In-Memory Asynchronous Cache Layer (`AsyncInMemoryCache`)** dengan fitur TTL dan smart key invalidation untuk digunakan di seluruh endpoint API.
 
 ---
 
 ## 2. File yang Akan Ditambah / Dimodifikasi
 
 ### File Baru:
+* `backend/src/utils/cache.py`: Utilitas caching asinkronus in-memory (`AsyncInMemoryCache`) dengan dukungan TTL (*Time-To-Live*), decorator `@cached(ttl=...)`, pattern invalidation (`invalidate(prefix)`), dan thread-safe lock.
 * `backend/src/utils/security.py`: Utilitas hashing password (bcrypt/argon2) dan enkripsi/dekripsi JWT token dengan masa berlaku terkonfigurasi.
 * `backend/src/api/__init__.py`: Inisialisasi package API.
-* `backend/src/api/deps.py`: Dependency injection FastAPI (`get_db_session`, `get_current_user`, `require_admin_role`).
+* `backend/src/api/deps.py`: Dependency injection FastAPI (`get_db_session`, `get_current_user`, `require_admin_role`, `get_cache`).
 * `backend/src/api/routers/__init__.py`: Inisialisasi router.
 * `backend/src/api/routers/auth.py`: Endpoint `/api/v1/auth/login`, `/api/v1/auth/refresh`, `/api/v1/auth/me`.
 * `backend/src/api/app.py`: Factory FastAPI application (`create_app()`), CORS middleware, global exception handlers, dan mounting router.
 * `backend/tests/api/test_auth_api.py`: Test suite untuk auth router.
+* `backend/tests/test_cache_utility.py`: Test suite unit untuk utilitas caching (TTL expiration, key invalidation, decorator behavior).
 
 ### File Dimodifikasi:
 * `backend/config/settings.py`: Menambahkan variabel konfigurasi `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, dan `ADMIN_PASSWORD_HASH`.
