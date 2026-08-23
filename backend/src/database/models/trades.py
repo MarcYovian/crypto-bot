@@ -97,4 +97,7 @@ class Trade(Base):
         Index("idx_trade_signal_id", "signal_id"),
         Index("idx_trade_instrument_id", "instrument_id"),
         Index("idx_trade_status", "status"),
+        Index("idx_trades_instrument_status", "instrument_id", "status"),
+        Index("idx_trades_status_created_at", "status", "created_at"),
+        Index("idx_trades_account_status", "account_id", "status"),
     )

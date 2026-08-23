@@ -11,10 +11,6 @@ class Settings(BaseSettings):
     development (testnet mode, 20x leverage, 70 % confidence threshold).
     """
 
-    BINANCE_API_KEY: str = ""
-    BINANCE_API_SECRET: str = ""
-    BINANCE_TESTNET: bool = True
-
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: int = 0
 

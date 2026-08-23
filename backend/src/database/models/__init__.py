@@ -15,6 +15,7 @@ from src.database.models.exchange import Exchange
 from src.database.models.trading_accounts import TradingAccount
 from src.database.models.trading_credentials import TradingCredential
 from src.database.models.instruments import Instrument
+from src.database.models.instrument_leverage_brackets import InstrumentLeverageBracket
 from src.database.models.strategies import Strategy
 from src.database.models.signal_providers import SignalProvider
 from src.database.models.risk_profiles import RiskProfile
@@ -35,6 +36,7 @@ __all__ = [
     "TradingAccount",
     "TradingCredential",
     "Instrument",
+    "InstrumentLeverageBracket",
     "Strategy",
     "SignalProvider",
     "RiskProfile",

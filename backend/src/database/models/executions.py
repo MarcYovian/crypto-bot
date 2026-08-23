@@ -49,4 +49,5 @@ class Execution(Base):
     __table_args__ = (
         Index("idx_executions_order_id", "order_id"),
         Index("idx_executions_trade_id", "trade_id"),
+        Index("idx_executions_trade_time", "trade_id", "executed_at"),
     )

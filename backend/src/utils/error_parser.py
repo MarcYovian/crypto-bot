@@ -131,3 +131,6 @@ class ErrorParser:
                 action_advice="Check the bot server logs for the full traceback.",
                 code="SYSTEM_UNHANDLED_EXCEPTION"
             )
+
+    # Static alias
+    parse = parse_error

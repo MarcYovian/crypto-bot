@@ -44,3 +44,15 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# === Testing, Linting & Coverage ===
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+cover_report/
+backend/cover_report/
+htmlcov/
+coverage.xml
+*.cover

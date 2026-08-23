@@ -72,4 +72,6 @@ class Order(Base):
         Index("idx_orders_status", "status"),
         Index("idx_orders_exchange_order_id", "exchange_order_id"),
         Index("idx_orders_purpose", "purpose"),
+        Index("idx_orders_trade_status", "trade_id", "status"),
+        Index("idx_orders_purpose_status", "purpose", "status"),
     )

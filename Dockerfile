@@ -1,5 +1,5 @@
-# Gunakan image Python yang ringan
-FROM python:3.10-slim
+# Gunakan image Python 3.12 yang ringan
+FROM python:3.12-slim
 
 # Set timezone (opsional, tapi disarankan agar cron scheduler sinkron)
 ENV TZ=Asia/Jakarta

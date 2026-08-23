@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 from sqlite3 import Connection as SQLite3Connection
 
+from typing import Any
 import os
 from config.settings import settings
 
@@ -17,12 +18,13 @@ else:
     DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(DB_DIR, 'trading_bot.db')}"
 
 # Configure engine arguments based on dialect
-engine_kwargs = {"echo": False}
+engine_kwargs: dict[str, Any] = {"echo": False}
 if DATABASE_URL.startswith("postgresql"):
     engine_kwargs.update({
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_pre_ping": True
+        "pool_size": 20,
+        "max_overflow": 10,
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
     })
 
 engine = create_async_engine(DATABASE_URL, **engine_kwargs)

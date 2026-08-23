@@ -32,4 +32,5 @@ class BotLog(Base):
         CheckConstraint("level IN ('DEBUG','INFO','WARNING','ERROR','CRITICAL')", name="chk_bot_log_level"),
         Index("idx_bot_logs_level", "level"),
         Index("idx_bot_logs_module", "module"),
+        Index("idx_bot_logs_level_created", "level", "created_at"),
     )

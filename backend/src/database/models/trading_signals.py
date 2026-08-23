@@ -79,4 +79,6 @@ class TradingSignal(Base):
         Index("idx_signal_provider_id", "provider_id"),
         Index("idx_signal_instrument_id", "instrument_id"),
         Index("idx_signal_status", "status"),
+        Index("idx_signals_tg_msg_id", "telegram_message_id"),
+        Index("idx_signals_status_created", "status", "created_at"),
     )

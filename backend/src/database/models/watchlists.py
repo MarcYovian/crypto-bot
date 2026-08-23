@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import Integer, Boolean, DateTime, ForeignKey, Index, func
+from sqlalchemy import Integer, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database.connection import Base
 
@@ -36,6 +36,7 @@ class Watchlist(Base):
     instrument: Mapped["Instrument"] = relationship("Instrument")
 
     __table_args__ = (
+        UniqueConstraint("instrument_id", name="uk_watchlist_instrument_id"),
         Index("idx_watchlist_instrument_id", "instrument_id"),
         Index("idx_watchlist_enabled", "enabled"),
     )

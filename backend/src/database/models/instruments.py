@@ -1,7 +1,7 @@
 """Instrument ORM model."""
 
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
 from sqlalchemy import Text, Integer, Numeric, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +9,7 @@ from src.database.connection import Base
 
 if TYPE_CHECKING:
     from src.database.models.exchange import Exchange
+    from src.database.models.instrument_leverage_brackets import InstrumentLeverageBracket
 
 
 class Instrument(Base):
@@ -57,6 +58,9 @@ class Instrument(Base):
 
     # Relationships
     exchange: Mapped["Exchange"] = relationship("Exchange", back_populates="instruments")
+    leverage_brackets: Mapped[List["InstrumentLeverageBracket"]] = relationship(
+        "InstrumentLeverageBracket", back_populates="instrument", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         # Symbol harus unik per exchange

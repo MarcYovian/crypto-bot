@@ -367,12 +367,15 @@ Sinyal perdagangan yang diterima dari provider.
 | `id` | INTEGER (PK) | Auto-increment primary key |
 | `provider_id` | INTEGER (FK, NOT NULL) | Relasi ke `signal_providers.id` |
 | `instrument_id` | INTEGER (FK, NOT NULL) | Relasi ke `instruments.id` |
-| `telegram_message_id` | INTEGER | ID pesan Telegram (opsional) |
+| `telegram_message_id` | INTEGER | ID pesan Telegram (opsional, indexed) |
 | `timeframe` | TEXT | Timeframe sinyal (e.g. 15m, 1h) |
 | `side` | TEXT (NOT NULL) | `BUY` atau `SELL` |
-| `entry_min` / `entry_max` | NUMERIC(18,8) | Rentang harga masuk |
+| `entry_min` | NUMERIC(18,8) | Batas bawah rentang harga entry |
+| `entry_max` | NUMERIC(18,8) | Batas atas rentang harga entry |
 | `sl_price` | NUMERIC(18,8) | Harga stop loss |
-| `tp1_price` - `tp3_price` | NUMERIC(18,8) | Target harga take profit |
+| `tp1_price` | NUMERIC(18,8) | Target harga take profit 1 |
+| `tp2_price` | NUMERIC(18,8) | Target harga take profit 2 |
+| `tp3_price` | NUMERIC(18,8) | Target harga take profit 3 |
 | `confidence` | NUMERIC(5,4) | Skor keyakinan sinyal |
 | `raw_message` | TEXT | Pesan mentah |
 | `parsed_json` | TEXT | JSON data terstruktur |
@@ -380,6 +383,8 @@ Sinyal perdagangan yang diterima dari provider.
 | `confirmation_status` | TEXT (DEFAULT 'NOT_REQUIRED') | Status konfirmasi pengguna |
 | `created_at` | DATETIME | Waktu pembuatan record |
 | `updated_at` | DATETIME | Waktu update record |
+
+*Indexes:* `idx_signal_provider_id`, `idx_signal_instrument_id`, `idx_signal_status`, `idx_signals_tg_msg_id` (`telegram_message_id`), `idx_signals_status_created` (`status`, `created_at`).
 
 ### Trade
 Catatan posisi perdagangan aktif maupun tertutup.
@@ -395,14 +400,19 @@ Catatan posisi perdagangan aktif maupun tertutup.
 | `entry_price` | NUMERIC(18,8) | Harga entry aktual |
 | `avg_entry_price` | NUMERIC(18,8) | Rata-rata harga entry partial |
 | `sl_price` | NUMERIC(18,8) | Harga stop loss |
-| `tp1_price` - `tp3_price` | NUMERIC(18,8) | Target harga take profit |
+| `tp1_price` | NUMERIC(18,8) | Target harga take profit 1 |
+| `tp2_price` | NUMERIC(18,8) | Target harga take profit 2 |
+| `tp3_price` | NUMERIC(18,8) | Target harga take profit 3 |
 | `leverage` | INTEGER | Leverage posisi |
 | `margin_mode` | TEXT (DEFAULT 'ISOLATED') | `ISOLATED` atau `CROSSED` |
 | `position_size` | NUMERIC(18,8) | Ukuran total posisi |
 | `remaining_qty` | NUMERIC(18,8) | Sisa kuantitas belum terisi |
-| `opened_at` / `closed_at` | DATETIME | Waktu posisi dibuka / ditutup |
+| `opened_at` | DATETIME | Waktu posisi dibuka |
+| `closed_at` | DATETIME | Waktu posisi ditutup |
 | `created_at` | DATETIME | Waktu pembuatan record |
 | `updated_at` | DATETIME | Waktu update record |
+
+*Indexes:* `idx_trade_account_id`, `idx_trade_strategy_id`, `idx_trade_signal_id`, `idx_trade_instrument_id`, `idx_trade_status`, `idx_trades_instrument_status` (`instrument_id`, `status`), `idx_trades_status_created_at` (`status`, `created_at`), `idx_trades_account_status` (`account_id`, `status`).
 
 ### TradeRisk
 Rincian perhitungan risiko untuk sebuah trade.
@@ -418,6 +428,8 @@ Rincian perhitungan risiko untuk sebuah trade.
 | `risk_amount` | NUMERIC(18,8) | Jumlah nominal risiko |
 | `leverage` | INTEGER | Leverage yang dipakai |
 | `created_at` | DATETIME | Waktu pembuatan record |
+
+*Indexes:* `trade_risk_pkey` (`trade_id`), `idx_trade_risk_daily_risk_id` (`daily_risk_id`).
 
 ### Order
 Order yang dikirimkan ke exchange.
@@ -440,6 +452,8 @@ Order yang dikirimkan ke exchange.
 | `created_at` | DATETIME | Waktu pembuatan record |
 | `updated_at` | DATETIME | Waktu update record |
 
+*Indexes:* `idx_orders_trade`, `idx_orders_status`, `idx_orders_exchange_order_id`, `idx_orders_purpose`, `idx_orders_trade_status` (`trade_id`, `status`), `idx_orders_purpose_status` (`purpose`, `status`).
+
 ### Execution
 Pengeksekusian terisi (fill) dari exchange.
 | Field | Type | Description |
@@ -455,6 +469,8 @@ Pengeksekusian terisi (fill) dari exchange.
 | `is_maker` | BOOLEAN (DEFAULT FALSE) | Flag order maker |
 | `executed_at` | DATETIME | Waktu eksekusi |
 
+*Indexes:* `idx_executions_order_id`, `idx_executions_trade_id`, `idx_executions_trade_time` (`trade_id`, `executed_at`).
+
 ### TradeEvent
 Event log siklus hidup posisi trade.
 | Field | Type | Description |
@@ -464,6 +480,8 @@ Event log siklus hidup posisi trade.
 | `event_type` | TEXT (NOT NULL) | Kategori event |
 | `payload_json` | TEXT | Rincian detail JSON |
 | `created_at` | DATETIME | Waktu event |
+
+*Indexes:* `idx_trade_events_trade` (`trade_id`), `idx_trade_events_trade_time` (`trade_id`, `created_at`).
 
 ### TradeSummary
 Ringkasan performa trade setelah ditutup.
@@ -481,15 +499,19 @@ Ringkasan performa trade setelah ditutup.
 | `close_reason` | TEXT (NOT NULL) | Alasan penutupan |
 | `closed_at` | DATETIME | Waktu penutupan |
 
+*Indexes:* `trade_summary_pkey` (`trade_id`), `idx_trade_summary_result` (`result`).
+
 ### Watchlist
 Instrumen yang diizinkan untuk diperdagangkan oleh bot.
 | Field | Type | Description |
 |:------|:-----|:------------|
 | `id` | INTEGER (PK) | Auto-increment primary key |
-| `instrument_id` | INTEGER (FK, NOT NULL) | Relasi ke `instruments.id` |
+| `instrument_id` | INTEGER (FK, UK, NOT NULL) | Relasi unik ke `instruments.id` |
 | `enabled` | BOOLEAN (DEFAULT TRUE) | Status aktif instrumen |
 | `created_at` | DATETIME | Waktu pembuatan record |
 | `updated_at` | DATETIME | Waktu update record |
+
+*Constraints & Indexes:* `uk_watchlist_instrument_id` (Unique Constraint), `idx_watchlist_instrument_id`, `idx_watchlist_enabled`.
 
 ### BotSetting
 Penyimpanan key-value konfigurasi bot.
@@ -502,6 +524,8 @@ Penyimpanan key-value konfigurasi bot.
 | `description` | TEXT | Deskripsi penjelasan |
 | `updated_at` | DATETIME | Waktu update record |
 
+*Indexes:* `bot_settings_pkey` (`key`), `idx_bot_settings_category` (`category`).
+
 ### BotLog
 Log aplikasi yang tersimpan di database.
 | Field | Type | Description |
@@ -512,6 +536,19 @@ Log aplikasi yang tersimpan di database.
 | `message` | TEXT (NOT NULL) | Pesan log |
 | `context_json` | TEXT | Detail konteks JSON |
 | `created_at` | DATETIME | Waktu log |
+
+*Indexes:* `idx_bot_logs_level`, `idx_bot_logs_module`, `idx_bot_logs_level_created` (`level`, `created_at`).
+
+---
+
+## Performance & Optimization Notes
+
+1. **Composite B-Tree Indexes:**
+   * Ditambahkan pada tabel `trades`, `orders`, `trading_signals`, `executions`, `trade_events`, dan `bot_logs` untuk memastikan query filtering realtime (misal: WebSocket order status updates, active positions query, cleanup cron, deduplikasi sinyal telegram) berjalan dalam kecepatan *sub-millisecond*.
+2. **PostgreSQL Async Connection Pool Tuning:**
+   * Diimplementasikan pada [`backend/src/database/connection.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/connection.py) dengan `pool_size=20`, `max_overflow=10`, `pool_pre_ping=True`, dan `pool_recycle=3600`.
+3. **Database Target:**
+   * Seluruh migrasi skema dikelola melalui Alembic dan langsung diaplikasikan ke container **PostgreSQL Docker** (`crypto_bot_postgres`).
 
 ---
 
@@ -537,3 +574,4 @@ Seluruh model ORM SQLAlchemy Async 2.0 terimplementasi secara modular pada direk
 * [`watchlists.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/watchlists.py) - Model `Watchlist`
 * [`bot_settings.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/bot_settings.py) - Model `BotSetting`
 * [`bot_logs.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/bot_logs.py) - Model `BotLog`
+
