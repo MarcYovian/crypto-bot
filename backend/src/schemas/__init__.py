@@ -103,6 +103,15 @@ from src.schemas.system import (
     BotLogRead,
 )
 
+from src.schemas.user import (
+    UserDTO,
+    LoginRequest,
+    LoginResponse,
+    TokenRefreshRequest,
+    UserCreateRequest,
+    UserUpdatePasswordRequest,
+)
+
 __all__ = [
     # Common
     "BaseSchema",
@@ -191,4 +200,12 @@ __all__ = [
     "BotLogBase",
     "BotLogCreate",
     "BotLogRead",
+    # User & Auth
+    "UserDTO",
+    "LoginRequest",
+    "LoginResponse",
+    "TokenRefreshRequest",
+    "UserCreateRequest",
+    "UserUpdatePasswordRequest",
 ]
+

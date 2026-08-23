@@ -19,6 +19,7 @@ from src.database.models.instrument_leverage_brackets import InstrumentLeverageB
 from src.database.models.strategies import Strategy
 from src.database.models.signal_providers import SignalProvider
 from src.database.models.risk_profiles import RiskProfile
+from src.database.models.users import User
 
 __all__ = [
     "BotSetting",
@@ -40,4 +41,6 @@ __all__ = [
     "Strategy",
     "SignalProvider",
     "RiskProfile",
+    "User",
 ]
+
