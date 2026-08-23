@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from src.api.routers.auth import router as auth_router
+from src.api.routers.analytics import router as analytics_router
 
 
 def create_app() -> FastAPI:
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
 
     # Include Routers
     app.include_router(auth_router)
+    app.include_router(analytics_router)
 
     # Healthcheck Route
     @app.get("/health", tags=["Health"], summary="API Service Health Check")

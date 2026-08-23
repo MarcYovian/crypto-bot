@@ -9,7 +9,7 @@ Roadmap implementasi REST & WebSocket API untuk Web Dashboard UI Crypto Trading 
 | No | Task File | Cakupan Endpoint / Modul | Status |
 | :---: | :--- | :--- | :---: |
 | **01** | [`01_app_setup_and_auth.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/01_app_setup_and_auth.md) | FastAPI Core Setup, JWT Security, In-Memory Async Cache (`AsyncInMemoryCache`), `/auth/login`, `/auth/refresh`, `/auth/me` | ✅ Done |
-| **02** | [`02_analytics_and_dashboard_summary.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/02_analytics_and_dashboard_summary.md) | `/analytics/summary` (Cached TTL 10s), `/analytics/equity-curve` (Cached TTL 60s) | ⏳ Pending |
+| **02** | [`02_analytics_and_dashboard_summary.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/02_analytics_and_dashboard_summary.md) | `/analytics/summary` (Cached TTL 10s), `/analytics/equity-curve` (Cached TTL 60s) | ✅ Done |
 | **03** | [`03_trades_and_positions_management.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/03_trades_and_positions_management.md) | `/trades/active`, `/trades/history`, `/trades/{id}`, `/trades/{id}/close` | ⏳ Pending |
 | **04** | [`04_signals_and_manual_execution.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/04_signals_and_manual_execution.md) | `/signals`, `/signals/manual-execute` (Strict 2% Risk Check) | ⏳ Pending |
 | **05** | [`05_watchlist_and_instruments.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/05_watchlist_and_instruments.md) | `/watchlist` (Cached & Invalidate on Toggle), `/instruments` (Cached TTL 30m & Invalidate on Sync) | ⏳ Pending |

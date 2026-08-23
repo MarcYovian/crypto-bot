@@ -112,6 +112,11 @@ from src.schemas.user import (
     UserUpdatePasswordRequest,
 )
 
+from src.schemas.analytics import (
+    AnalyticsSummaryDTO,
+    EquityPointDTO,
+)
+
 __all__ = [
     # Common
     "BaseSchema",
@@ -207,5 +212,9 @@ __all__ = [
     "TokenRefreshRequest",
     "UserCreateRequest",
     "UserUpdatePasswordRequest",
+    # Analytics
+    "AnalyticsSummaryDTO",
+    "EquityPointDTO",
 ]
+
 
