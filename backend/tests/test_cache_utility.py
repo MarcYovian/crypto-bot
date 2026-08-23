@@ -85,3 +85,23 @@ async def test_cached_decorator():
     res3 = await expensive_computation(10)
     assert res3 == 20
     assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cache_access():
+    """Test 50 concurrent tasks reading and writing to cache without race conditions."""
+    cache = AsyncInMemoryCache()
+
+    async def worker(worker_id: int):
+        for i in range(10):
+            await cache.set(f"key_{worker_id}_{i}", worker_id * 100 + i, ttl_seconds=10)
+            val = await cache.get(f"key_{worker_id}_{i}")
+            assert val == worker_id * 100 + i
+
+    tasks = [worker(i) for i in range(50)]
+    await asyncio.gather(*tasks)
+
+    assert cache.size() == 500
+    await cache.clear()
+    assert cache.size() == 0
+

@@ -172,3 +172,115 @@ async def test_get_current_user_profile(app_and_client):
     assert user_data["username"] == "admin"
     assert user_data["role"] == "ADMIN"
     assert user_data["is_active"] is True
+
+
+# =========================================================================
+# SECURITY & EDGE CASE TESTS
+# =========================================================================
+
+@pytest.mark.asyncio
+async def test_security_token_tampered_signature(app_and_client):
+    """Test that a JWT signed with a forged/different secret is rejected."""
+    client, _ = app_and_client
+    import jwt
+    from datetime import datetime, timezone, timedelta
+
+    tampered_token = jwt.encode(
+        {"sub": "admin", "role": "ADMIN", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+        "completely-wrong-fake-secret-key-12345",
+        algorithm="HS256",
+    )
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tampered_token}"})
+    assert response.status_code == 401
+    assert "Could not validate credentials" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_security_token_type_confusion_access_on_refresh(app_and_client):
+    """Test that an access token cannot be used to call /refresh (Token Type Confusion attack)."""
+    client, _ = app_and_client
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "AdminPass123!"},
+    )
+    access_token = login_resp.json()["access_token"]
+
+    # Try calling /refresh with access_token instead of refresh_token
+    response = await client.post("/api/v1/auth/refresh", json={"refresh_token": access_token})
+    assert response.status_code == 401
+    assert "Invalid refresh token payload" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_security_token_type_confusion_refresh_on_protected_endpoint(app_and_client):
+    """Test that a refresh token cannot be used as Bearer token on protected endpoints."""
+    client, _ = app_and_client
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "AdminPass123!"},
+    )
+    refresh_token = login_resp.json()["refresh_token"]
+
+    # Try calling /me with refresh_token
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {refresh_token}"})
+    assert response.status_code == 401
+    assert "Invalid token payload or token type" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_security_token_expired(app_and_client):
+    """Test that an expired JWT token is rejected with 401."""
+    client, _ = app_and_client
+    from datetime import timedelta
+    from src.utils.security import create_access_token
+
+    expired_token = create_access_token(
+        data={"sub": "admin", "role": "ADMIN"},
+        expires_delta=timedelta(seconds=-10),  # Expired 10 seconds ago
+    )
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
+    assert response.status_code == 401
+    assert "Token has expired" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_edge_case_case_insensitive_and_whitespace_login(app_and_client):
+    """Test that usernames with leading/trailing whitespaces and mixed case log in seamlessly."""
+    client, _ = app_and_client
+    payload = {
+        "username": "   AdMiN   ",
+        "password": "AdminPass123!",
+    }
+    response = await client.post("/api/v1/auth/login", json=payload)
+    assert response.status_code == 200
+    assert response.json()["user"]["username"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_edge_case_malformed_auth_headers(app_and_client):
+    """Test various malformed Authorization headers."""
+    client, _ = app_and_client
+    # 1. Missing Bearer prefix
+    resp1 = await client.get("/api/v1/auth/me", headers={"Authorization": "Basic 12345"})
+    assert resp1.status_code == 401
+
+    # 2. Empty Authorization header
+    resp2 = await client.get("/api/v1/auth/me", headers={"Authorization": ""})
+    assert resp2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_validation_errors_pydantic_custom_handler(app_and_client):
+    """Test that validation errors trigger custom 422 JSON response schema."""
+    client, _ = app_and_client
+    # Password too short (< 6 chars)
+    payload = {
+        "username": "admin",
+        "password": "123",
+    }
+    response = await client.post("/api/v1/auth/login", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert data["code"] == "VALIDATION_ERROR"
+    assert "password" in data["detail"]
+

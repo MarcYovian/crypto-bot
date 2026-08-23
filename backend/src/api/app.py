@@ -35,7 +35,7 @@ def create_app() -> FastAPI:
         message = errors[0].get("msg", "Validation error") if errors else "Invalid request body"
         field = " -> ".join(str(loc) for loc in errors[0].get("loc", [])) if errors else "payload"
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             content={
                 "detail": f"{field}: {message}",
                 "code": "VALIDATION_ERROR",
