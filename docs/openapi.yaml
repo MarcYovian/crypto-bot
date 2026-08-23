@@ -1,0 +1,1500 @@
+openapi: 3.1.0
+info:
+  title: SMC CryptoBot Dashboard API
+  version: 2.0.0
+  description: |
+    Comprehensive REST and WebSocket API specification for the Semi-Automated Binance Futures Trading Bot Dashboard.
+    Provides endpoints for authentication, live trade monitoring, emergency overrides, signal ingestion, risk simulation,
+    analytics, strategy configuration, and real-time WebSocket feeds.
+  contact:
+    name: SMC QuantEngine Team
+    email: support@cryptobot.local
+
+servers:
+  - url: http://localhost:8000
+    description: Local Development Server
+  - url: https://api.cryptobot.domain.com
+    description: Production Server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication, session management, and JWT tokens.
+  - name: Analytics
+    description: Equity curves, PnL statistics, win rates, and daily risk budgets.
+  - name: Trades
+    description: Active positions, historical trades, detail breakdowns, and manual market close.
+  - name: Signals
+    description: Telegram signal feeds, parsing inspection, confidence scores, and manual trade submissions.
+  - name: Watchlist & Instruments
+    description: Whitelisted pairs, leverage bracket metadata, and Binance symbol synchronization.
+  - name: Signal Providers
+    description: Channel/Provider management and individual performance leaderboards.
+  - name: Strategies
+    description: Take profit allocation rules, BEP triggers, and trailing stop configs.
+  - name: Risk Calculator
+    description: Live simulation sandbox for 2.0% risk sizing, margin required, and liquidation price.
+  - name: Bot Operations
+    description: Bot heartbeat, Pause/Resume controls, and Emergency Panic Close.
+  - name: Settings & Credentials
+    description: Dynamic configuration parameters and Binance API key rotation.
+  - name: Logs & Audit
+    description: System logs with log-level and trace_id filtering.
+  - name: Reports
+    description: Historical CSV/Excel data export.
+  - name: WebSocket
+    description: Real-time event streaming for UI dashboard widgets.
+
+paths:
+  # =========================================================================
+  # AUTHENTICATION
+  # =========================================================================
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Admin login
+      description: Authenticate admin user with username and password to obtain JWT access & refresh tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh JWT access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: bearer
+        '401':
+          description: Expired or invalid refresh token
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated admin user
+      responses:
+        '200':
+          description: Authenticated user details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDTO'
+
+  # =========================================================================
+  # ANALYTICS & DASHBOARD SUMMARY
+  # =========================================================================
+  /api/v1/analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Get high-level dashboard metrics
+      description: Returns wallet balance, daily PnL, win rate, profit factor, and remaining daily risk budget.
+      parameters:
+        - name: account_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Performance summary metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsSummaryDTO'
+
+  /api/v1/analytics/equity-curve:
+    get:
+      tags: [Analytics]
+      summary: Get equity growth curve chart data
+      parameters:
+        - name: timeframe
+          in: query
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, all]
+            default: 30d
+      responses:
+        '200':
+          description: List of historical equity points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EquityPointDTO'
+
+  # =========================================================================
+  # TRADES & POSITIONS
+  # =========================================================================
+  /api/v1/trades/active:
+    get:
+      tags: [Trades]
+      summary: List all active open positions
+      description: Returns positions with status OPEN, PARTIAL, or WAITING_ENTRY, including real-time unrealized PnL.
+      parameters:
+        - name: account_id
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: List of active trades
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActiveTradeDTO'
+
+  /api/v1/trades/history:
+    get:
+      tags: [Trades]
+      summary: List historical closed/cancelled trades with pagination
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: result
+          in: query
+          schema:
+            type: string
+            enum: [WIN, LOSS, BREAKEVEN, CANCELLED]
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Paginated trade history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTradeHistoryDTO'
+
+  /api/v1/trades/{id}:
+    get:
+      tags: [Trades]
+      summary: Get trade details with full child relations
+      description: Returns trade entity populated with trade_risk, orders, executions, events, and summary.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Trade full details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TradeDetailDTO'
+        '404':
+          description: Trade not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/trades/{id}/close:
+    post:
+      tags: [Trades]
+      summary: Manually close a trade via Market order
+      description: Submits a Reduce-Only Market order on Binance to close remaining quantity, cancels pending orders, and marks trade CLOSED.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  default: UI_MANUAL_CLOSE
+      responses:
+        '200':
+          description: Trade closed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericActionResponse'
+        '400':
+          description: Trade is not in a closeable status
+
+  # =========================================================================
+  # SIGNALS
+  # =========================================================================
+  /api/v1/signals:
+    get:
+      tags: [Signals]
+      summary: List incoming Telegram signals feed
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PROCESSED, REJECTED, EXPIRED]
+      responses:
+        '200':
+          description: Paginated list of signals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSignalListDTO'
+
+  /api/v1/signals/manual-execute:
+    post:
+      tags: [Signals]
+      summary: Manually execute a trading signal
+      description: Accepts raw signal text or structured fields, validates risk 2%, and triggers order execution.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualSignalExecutionRequest'
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TradeExecutionResultDTO'
+        '400':
+          description: Validation or risk calculation failure
+
+  # =========================================================================
+  # WATCHLIST & INSTRUMENTS
+  # =========================================================================
+  /api/v1/watchlist:
+    get:
+      tags: [Watchlist & Instruments]
+      summary: List all watchlist pairs
+      responses:
+        '200':
+          description: List of watchlist items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatchlistItemDTO'
+
+  /api/v1/watchlist/toggle:
+    post:
+      tags: [Watchlist & Instruments]
+      summary: Enable or disable trading for a symbol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbol, enabled]
+              properties:
+                symbol:
+                  type: string
+                  example: BTCUSDT
+                enabled:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: Watchlist item updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistItemDTO'
+
+  /api/v1/instruments:
+    get:
+      tags: [Watchlist & Instruments]
+      summary: List all synced Binance Futures instruments
+      responses:
+        '200':
+          description: List of instrument specifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InstrumentDTO'
+
+  /api/v1/instruments/sync:
+    post:
+      tags: [Watchlist & Instruments]
+      summary: Trigger manual sync of exchange metadata & leverage brackets
+      responses:
+        '200':
+          description: Sync completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  synced_instruments:
+                    type: integer
+                  synced_brackets:
+                    type: integer
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # =========================================================================
+  # SIGNAL PROVIDERS
+  # =========================================================================
+  /api/v1/providers:
+    get:
+      tags: [Signal Providers]
+      summary: List all configured signal channels
+      responses:
+        '200':
+          description: List of signal providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SignalProviderDTO'
+    post:
+      tags: [Signal Providers]
+      summary: Add a new Telegram signal provider channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalProviderCreateRequest'
+      responses:
+        '201':
+          description: Provider added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalProviderDTO'
+
+  /api/v1/providers/{id}/analytics:
+    get:
+      tags: [Signal Providers]
+      summary: Get performance metrics for a specific signal provider
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Provider performance metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPerformanceDTO'
+
+  # =========================================================================
+  # STRATEGIES
+  # =========================================================================
+  /api/v1/strategies:
+    get:
+      tags: [Strategies]
+      summary: List all trading strategies
+      responses:
+        '200':
+          description: List of strategies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StrategyDTO'
+
+  /api/v1/strategies/{id}:
+    put:
+      tags: [Strategies]
+      summary: Update strategy TP allocation ratios and trailing rules
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StrategyUpdateRequest'
+      responses:
+        '200':
+          description: Strategy updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StrategyDTO'
+
+  # =========================================================================
+  # RISK CALCULATOR SIMULATOR
+  # =========================================================================
+  /api/v1/calculator/simulate:
+    post:
+      tags: [Risk Calculator]
+      summary: Live Risk & Position Sizing Simulator Sandbox
+      description: Calculates exact lot size, required margin, liquidation price, and confirms strict 2.0% loss cap at Stop Loss.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RiskSimulationRequest'
+      responses:
+        '200':
+          description: Position calculation output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskSimulationResponse'
+
+  # =========================================================================
+  # BOT OPERATIONS & CIRCUIT BREAKER
+  # =========================================================================
+  /api/v1/bot/status:
+    get:
+      tags: [Bot Operations]
+      summary: Get real-time engine runtime status
+      description: Returns health status, circuit breaker pause state, WebSocket status, and scheduler heartbeat.
+      responses:
+        '200':
+          description: Bot runtime state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotStatusDTO'
+
+  /api/v1/bot/pause:
+    post:
+      tags: [Bot Operations]
+      summary: Pause trading bot manually
+      description: Rejects any new incoming signals until resumed. Open positions remain active.
+      responses:
+        '200':
+          description: Bot paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericActionResponse'
+
+  /api/v1/bot/resume:
+    post:
+      tags: [Bot Operations]
+      summary: Resume trading bot
+      responses:
+        '200':
+          description: Bot resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericActionResponse'
+
+  /api/v1/bot/panic:
+    post:
+      tags: [Bot Operations]
+      summary: Emergency Panic Close All
+      description: Closes all open positions via Market order and cancels all active orders immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: boolean
+                  description: Must be true to confirm emergency action
+                  example: true
+      responses:
+        '200':
+          description: Panic close execution summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  closed_trades_count:
+                    type: integer
+                  canceled_orders_count:
+                    type: integer
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # =========================================================================
+  # SETTINGS & CREDENTIALS
+  # =========================================================================
+  /api/v1/settings:
+    get:
+      tags: [Settings & Credentials]
+      summary: Get active bot settings & risk profile
+      responses:
+        '200':
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotSettingsDTO'
+    put:
+      tags: [Settings & Credentials]
+      summary: Update bot settings & risk profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BotSettingsUpdateRequest'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotSettingsDTO'
+
+  /api/v1/settings/credentials:
+    post:
+      tags: [Settings & Credentials]
+      summary: Add or rotate Binance API Key & Secret with handshake test
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TradingCredentialCreateRequest'
+      responses:
+        '200':
+          description: Credentials saved and client hot-reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  account_id:
+                    type: integer
+                  credential_id:
+                    type: integer
+                  wallet_balance_usdt:
+                    type: number
+                  environment:
+                    type: string
+
+  # =========================================================================
+  # LOGS
+  # =========================================================================
+  /api/v1/logs:
+    get:
+      tags: [Logs & Audit]
+      summary: Query system audit logs
+      parameters:
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+        - name: trace_id
+          in: query
+          schema:
+            type: string
+            example: sig-a1b2c3d4
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: List of audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogEntryDTO'
+
+  # =========================================================================
+  # REPORTS & EXPORT
+  # =========================================================================
+  /api/v1/reports/export/csv:
+    get:
+      tags: [Reports]
+      summary: Export trade history as CSV file
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  # =========================================================================
+  # WEBSOCKET REALTIME FEED
+  # =========================================================================
+  /api/v1/ws:
+    get:
+      tags: [WebSocket]
+      summary: Real-time WebSocket event connection
+      description: |
+        Connect to stream real-time updates without refreshing.
+        Supported event types: `TRADE_OPENED`, `ORDER_FILLED`, `TP_HIT`, `SL_HIT`, `TRADE_CLOSED`, `CIRCUIT_BREAKER_TRIGGERED`, `TICKER_UPDATE`.
+      responses:
+        '101':
+          description: Switching Protocols to WebSocket stream
+
+# =========================================================================
+# COMPONENTS & SCHEMAS
+# =========================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: SuperSecureAdminPass123!
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: bearer
+        user:
+          $ref: '#/components/schemas/UserDTO'
+
+    UserDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        username:
+          type: string
+          example: admin
+        role:
+          type: string
+          example: ADMIN
+
+    AnalyticsSummaryDTO:
+      type: object
+      properties:
+        total_balance_usdt:
+          type: number
+          example: 10450.50
+        free_margin_usdt:
+          type: number
+          example: 9800.20
+        daily_realized_pnl:
+          type: number
+          example: 45.50
+        daily_pnl_percent:
+          type: number
+          example: 0.45
+        daily_risk_budget:
+          type: number
+          example: 200.00
+        remaining_risk_budget:
+          type: number
+          example: 154.50
+        win_rate:
+          type: number
+          example: 72.5
+        total_trades_count:
+          type: integer
+          example: 40
+        winning_trades_count:
+          type: integer
+          example: 29
+        losing_trades_count:
+          type: integer
+          example: 11
+        profit_factor:
+          type: number
+          example: 2.85
+        active_trades_count:
+          type: integer
+          example: 2
+
+    EquityPointDTO:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        balance:
+          type: number
+          example: 10250.00
+        pnl:
+          type: number
+          example: 25.00
+
+    ActiveTradeDTO:
+      type: object
+      properties:
+        trade_id:
+          type: integer
+          example: 101
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          enum: [BUY, SELL]
+          example: BUY
+        status:
+          type: string
+          enum: [WAITING_ENTRY, OPEN, PARTIAL]
+          example: OPEN
+        entry_price:
+          type: number
+          example: 50000.00
+        current_price:
+          type: number
+          example: 50600.00
+        sl_price:
+          type: number
+          example: 49000.00
+        position_size:
+          type: number
+          example: 0.02
+        remaining_qty:
+          type: number
+          example: 0.02
+        unrealized_pnl:
+          type: number
+          example: 12.00
+        unrealized_pnl_percent:
+          type: number
+          example: 1.20
+        leverage:
+          type: integer
+          example: 20
+        margin_mode:
+          type: string
+          example: ISOLATED
+        tp_levels:
+          type: array
+          items:
+            type: object
+            properties:
+              level:
+                type: integer
+              price:
+                type: number
+              is_hit:
+                type: boolean
+        opened_at:
+          type: string
+          format: date-time
+
+    PaginatedTradeHistoryDTO:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 120
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 20
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TradeHistoryItemDTO'
+
+    TradeHistoryItemDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 45
+        symbol:
+          type: string
+          example: ETHUSDT
+        side:
+          type: string
+          example: BUY
+        entry_price:
+          type: number
+          example: 3000.00
+        exit_price:
+          type: number
+          example: 3150.00
+        position_size:
+          type: number
+          example: 0.50
+        net_pnl:
+          type: number
+          example: 75.00
+        roi_percent:
+          type: number
+          example: 5.00
+        result:
+          type: string
+          enum: [WIN, LOSS, BREAKEVEN, CANCELLED]
+          example: WIN
+        close_reason:
+          type: string
+          example: TP3_HIT
+        opened_at:
+          type: string
+          format: date-time
+        closed_at:
+          type: string
+          format: date-time
+
+    TradeDetailDTO:
+      type: object
+      properties:
+        trade_id:
+          type: integer
+        symbol:
+          type: string
+        side:
+          type: string
+        status:
+          type: string
+        entry_price:
+          type: number
+        sl_price:
+          type: number
+        position_size:
+          type: number
+        leverage:
+          type: integer
+        risk_details:
+          type: object
+          properties:
+            risk_amount_usdt:
+              type: number
+            stop_distance:
+              type: number
+            required_margin:
+              type: number
+        orders:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              exchange_order_id:
+                type: string
+              purpose:
+                type: string
+              order_type:
+                type: string
+              side:
+                type: string
+              price:
+                type: number
+              qty:
+                type: number
+              status:
+                type: string
+        executions:
+          type: array
+          items:
+            type: object
+            properties:
+              price:
+                type: number
+              qty:
+                type: number
+              commission:
+                type: number
+              realized_pnl:
+                type: number
+              executed_at:
+                type: string
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_type:
+                type: string
+              payload:
+                type: object
+              created_at:
+                type: string
+        summary:
+          type: object
+          properties:
+            gross_pnl:
+              type: number
+            net_pnl:
+              type: number
+            commission:
+              type: number
+            roi:
+              type: number
+            result:
+              type: string
+
+    PaginatedSignalListDTO:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignalItemDTO'
+
+    SignalItemDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+        trace_id:
+          type: string
+          example: sig-a1b2c3d4
+        raw_text:
+          type: string
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          example: BUY
+        entry_price:
+          type: number
+        sl_price:
+          type: number
+        tp_targets:
+          type: array
+          items:
+            type: number
+        confidence_score:
+          type: number
+          example: 0.95
+        status:
+          type: string
+          example: PROCESSED
+        created_at:
+          type: string
+          format: date-time
+
+    ManualSignalExecutionRequest:
+      type: object
+      required: [symbol, side, entry_price, sl_price, tp_targets]
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          enum: [BUY, SELL]
+          example: BUY
+        entry_price:
+          type: number
+          example: 50000.00
+        sl_price:
+          type: number
+          example: 49000.00
+        tp_targets:
+          type: array
+          items:
+            type: number
+          example: [51000.00, 52000.00, 53000.00]
+        leverage:
+          type: integer
+          example: 20
+        auto_tp_sl:
+          type: boolean
+          default: true
+
+    TradeExecutionResultDTO:
+      type: object
+      properties:
+        is_success:
+          type: boolean
+          example: true
+        trade_id:
+          type: integer
+          example: 88
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          example: BUY
+        position_size:
+          type: number
+          example: 0.02
+        leverage:
+          type: integer
+          example: 20
+        entry_order_id:
+          type: string
+          example: "12345678"
+        sl_order_id:
+          type: string
+          example: "12345679"
+        tp_order_ids:
+          type: array
+          items:
+            type: string
+
+    WatchlistItemDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+        symbol:
+          type: string
+          example: BTCUSDT
+        enabled:
+          type: boolean
+          example: true
+        max_leverage:
+          type: integer
+          example: 125
+        tick_size:
+          type: number
+          example: 0.10
+        min_qty:
+          type: number
+          example: 0.001
+
+    InstrumentDTO:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        base_asset:
+          type: string
+          example: BTC
+        quote_asset:
+          type: string
+          example: USDT
+        price_precision:
+          type: integer
+          example: 2
+        qty_precision:
+          type: integer
+          example: 3
+        tick_size:
+          type: number
+          example: 0.10
+        step_size:
+          type: number
+          example: 0.001
+        min_notional:
+          type: number
+          example: 5.0
+        max_leverage:
+          type: integer
+          example: 125
+        brackets:
+          type: array
+          items:
+            type: object
+            properties:
+              bracket:
+                type: integer
+              initial_leverage:
+                type: integer
+              notional_cap:
+                type: number
+              maint_margin_ratio:
+                type: number
+
+    SignalProviderDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: "Crypto VIP Signals"
+        channel_id:
+          type: string
+          example: "-100123456789"
+        is_active:
+          type: boolean
+          example: true
+        confidence_weight:
+          type: number
+          example: 1.0
+
+    SignalProviderCreateRequest:
+      type: object
+      required: [name, channel_id]
+      properties:
+        name:
+          type: string
+          example: "Crypto VIP Signals"
+        channel_id:
+          type: string
+          example: "-100123456789"
+        confidence_weight:
+          type: number
+          default: 1.0
+
+    ProviderPerformanceDTO:
+      type: object
+      properties:
+        provider_id:
+          type: integer
+        provider_name:
+          type: string
+        total_signals:
+          type: integer
+          example: 50
+        executed_trades:
+          type: integer
+          example: 45
+        win_rate:
+          type: number
+          example: 75.0
+        total_net_pnl_usdt:
+          type: number
+          example: 450.25
+
+    StrategyDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: "Standard 3-Stage TP"
+        tp_allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              tp_level:
+                type: integer
+              percentage:
+                type: number
+        bep_trigger_level:
+          type: integer
+          example: 1
+        trailing_trigger_level:
+          type: integer
+          example: 2
+        is_active:
+          type: boolean
+
+    StrategyUpdateRequest:
+      type: object
+      properties:
+        tp1_percent:
+          type: number
+          example: 50.0
+        tp2_percent:
+          type: number
+          example: 30.0
+        tp3_percent:
+          type: number
+          example: 20.0
+        bep_trigger_level:
+          type: integer
+          example: 1
+        trailing_trigger_level:
+          type: integer
+          example: 2
+
+    RiskSimulationRequest:
+      type: object
+      required: [symbol, side, entry_price, sl_price, wallet_balance]
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          enum: [BUY, SELL]
+          example: BUY
+        entry_price:
+          type: number
+          example: 50000.00
+        sl_price:
+          type: number
+          example: 49000.00
+        wallet_balance:
+          type: number
+          example: 1000.00
+        requested_leverage:
+          type: integer
+          default: 20
+        risk_percent:
+          type: number
+          default: 2.0
+
+    RiskSimulationResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          example: BUY
+        max_allowed_loss_usdt:
+          type: number
+          description: Strict 2% of wallet equity
+          example: 20.00
+        calculated_position_size:
+          type: number
+          example: 0.02
+        required_margin_usdt:
+          type: number
+          example: 50.00
+        effective_leverage:
+          type: integer
+          example: 20
+        is_leverage_downscaled:
+          type: boolean
+          example: false
+        estimated_liquidation_price:
+          type: number
+          example: 47500.00
+        stop_distance_usdt:
+          type: number
+          example: 1000.00
+        projected_loss_at_sl_usdt:
+          type: number
+          example: 20.00
+        is_safe:
+          type: boolean
+          example: true
+
+    BotStatusDTO:
+      type: object
+      properties:
+        is_running:
+          type: boolean
+          example: true
+        is_paused:
+          type: boolean
+          example: false
+        trading_status:
+          type: string
+          example: ACTIVE
+        circuit_breaker_active:
+          type: boolean
+          example: false
+        binance_ws_connected:
+          type: boolean
+          example: true
+        telegram_polling_active:
+          type: boolean
+          example: true
+        scheduler_jobs_count:
+          type: integer
+          example: 7
+        last_heartbeat:
+          type: string
+          format: date-time
+
+    BotSettingsDTO:
+      type: object
+      properties:
+        default_leverage:
+          type: integer
+          example: 20
+        confidence_threshold:
+          type: number
+          example: 0.70
+        risk_percent_per_trade:
+          type: number
+          example: 2.0
+        max_daily_loss_percent:
+          type: number
+          example: 6.0
+        max_open_trades:
+          type: integer
+          example: 3
+        is_paused:
+          type: boolean
+          example: false
+
+    BotSettingsUpdateRequest:
+      type: object
+      properties:
+        default_leverage:
+          type: integer
+        confidence_threshold:
+          type: number
+        risk_percent_per_trade:
+          type: number
+        max_daily_loss_percent:
+          type: number
+        max_open_trades:
+          type: integer
+
+    TradingCredentialCreateRequest:
+      type: object
+      required: [api_key, secret_key]
+      properties:
+        api_key:
+          type: string
+          minLength: 10
+        secret_key:
+          type: string
+          minLength: 10
+        environment:
+          type: string
+          enum: [TESTNET, LIVE]
+          default: TESTNET
+
+    LogEntryDTO:
+      type: object
+      properties:
+        id:
+          type: integer
+        level:
+          type: string
+          example: INFO
+        module:
+          type: string
+          example: EXECUTION_ENGINE
+        message:
+          type: string
+        trace_id:
+          type: string
+          example: sig-a1b2c3d4
+        created_at:
+          type: string
+          format: date-time
+
+    GenericActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Action completed successfully."
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: "Resource not found or invalid operation."
+        code:
+          type: string
+          example: "RESOURCE_NOT_FOUND"
