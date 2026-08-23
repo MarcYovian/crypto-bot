@@ -1,142 +1,283 @@
-"""Data-access layer for trades, risk, orders, executions, events, and summaries."""
+"""Data-access repository for Trade / Position lifecycle and state machine."""
 
 from datetime import datetime, timedelta
-from typing import Optional, List
-from sqlalchemy import select, update, func
+from decimal import Decimal
+from typing import Optional, List, Union, Any
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.database.models import (
-    DailyRiskConfig, Trade, TradeRisk, Order,
-    Execution, TradeEvent, TradeSummary
-)
-from src.services.risk_calculator import RiskCalculationResult
+from src.database.models import Trade, Order, TradeEvent
+from src.schemas.trade import TradeCreate, TradeUpdate, TradeStatusUpdate
+from src.repository.base import BaseRepository
 
 
-class TradeRepository:
-    """CRUD operations for trades and related entities (risk, orders, executions, events, summaries)."""
+class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
+    """CRUD and lifecycle state-machine repository for the ``trades`` table."""
 
     def __init__(self, session: AsyncSession):
-        self.session = session
+        super().__init__(Trade, session)
 
-    # ------------------------------------------------------------------
-    # 1. DAILY RISK SNAPSHOT
-    # ------------------------------------------------------------------
-
-    async def get_daily_risk(self, date_str: str) -> Optional[DailyRiskConfig]:
-        """Fetch the daily risk config for a given date (YYYY-MM-DD)."""
-        stmt = select(DailyRiskConfig).where(DailyRiskConfig.date == date_str)
+    async def get_detail(self, trade_id: int) -> Optional[Trade]:
+        """Fetch comprehensive trade detail with all 5 child relationships eagerly loaded.
+        
+        Loads: trade_risk, orders, executions, events, and summary via selectinload.
+        
+        Args:
+            trade_id: Trade primary key ID.
+            
+        Returns:
+            Trade instance with populated child relations, or None.
+        """
+        stmt = (
+            select(Trade)
+            .options(
+                selectinload(Trade.trade_risk),
+                selectinload(Trade.orders),
+                selectinload(Trade.executions),
+                selectinload(Trade.events),
+                selectinload(Trade.summary),
+            )
+            .where(Trade.id == trade_id)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def create_daily_risk_snapshot(
-        self, date_str: str, balance: float, risk_percent: float
-    ) -> DailyRiskConfig:
-        """Persist a daily risk snapshot with the current USDT balance.
-
+    async def get_active_trade_by_instrument(
+        self, instrument_id: int
+    ) -> Optional[Trade]:
+        """Check if an active position already exists for this instrument.
+        
+        Utilizes index ``idx_trades_instrument_status``.
+        Active statuses: ('WAITING_ENTRY', 'OPEN', 'PARTIAL').
+        
         Args:
-            date_str: Date string in YYYY-MM-DD format.
-            balance: Total USDT balance.
-            risk_percent: Percentage of balance allocated per trade.
-
+            instrument_id: FK to instruments table.
+            
         Returns:
-            The newly created ``DailyRiskConfig`` instance.
+            Active Trade instance or None.
         """
-        risk_amount = balance * (risk_percent / 100.0)
-        snapshot = DailyRiskConfig(
-            date=date_str,
-            balance=balance,
-            risk_percent=risk_percent,
-            risk_amount=risk_amount
+        stmt = (
+            select(Trade)
+            .where(
+                Trade.instrument_id == instrument_id,
+                Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"])
+            )
+            .limit(1)
         )
-        self.session.add(snapshot)
-        await self.session.commit()
-        await self.session.refresh(snapshot)
-        return snapshot
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    # ------------------------------------------------------------------
-    # 2. TRADE & TRADE RISK
-    # ------------------------------------------------------------------
+    async def count_active_trades(self, account_id: int) -> int:
+        """Count current active positions for risk management limit (max_open_trade).
+        
+        Args:
+            account_id: FK to trading_accounts table.
+            
+        Returns:
+            Count of active positions integer.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(Trade)
+            .where(
+                Trade.account_id == account_id,
+                Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"])
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one() or 0
 
-    async def create_trade_with_risk(
+    async def get_all_active_trades(
+        self, account_id: Optional[int] = None
+    ) -> List[Trade]:
+        """Fetch all currently active positions across the account.
+        
+        Args:
+            account_id: Optional account FK filter.
+            
+        Returns:
+            List of active Trade instances.
+        """
+        stmt = (
+            select(Trade)
+            .where(Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]))
+            .order_by(Trade.created_at.desc())
+        )
+        if account_id is not None:
+            stmt = stmt.where(Trade.account_id == account_id)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_active_trades_with_instrument(
+        self, account_id: Optional[int] = None
+    ) -> List[Trade]:
+        """Fetch active trades with eagerly loaded Instrument metadata for ticker monitoring.
+        
+        Args:
+            account_id: Optional account FK filter.
+            
+        Returns:
+            List of Trade instances with populated .instrument relation.
+        """
+        stmt = (
+            select(Trade)
+            .options(selectinload(Trade.instrument))
+            .where(Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]))
+            .order_by(Trade.created_at.desc())
+        )
+        if account_id is not None:
+            stmt = stmt.where(Trade.account_id == account_id)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_expired_waiting_trades(
+        self, max_hours: int = 4
+    ) -> List[Trade]:
+        """Fetch hanging WAITING_ENTRY trades older than max_hours for cron cancellation.
+        
+        Utilizes index ``idx_trades_status_created_at``.
+        
+        Args:
+            max_hours: Maximum lifetime in hours for unfilled entry orders.
+            
+        Returns:
+            List of expired WAITING_ENTRY Trade instances.
+        """
+        cutoff = datetime.now() - timedelta(hours=max_hours)
+        stmt = (
+            select(Trade)
+            .where(
+                Trade.status == "WAITING_ENTRY",
+                Trade.created_at <= cutoff
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_entry_fill(
         self,
-        signal_id: int,
-        symbol: str,
-        side: str,
-        leverage: int,
-        risk_date: str,
-        risk_res: RiskCalculationResult,
-        tp1_price: Optional[float] = None,
-        tp2_price: Optional[float] = None,
-        tp3_price: Optional[float] = None,
-    ) -> Trade:
-        """Create a trade record and its associated risk detail in one transaction.
-
+        trade_id: int,
+        entry_price: Decimal,
+        avg_entry_price: Optional[Decimal] = None,
+        opened_at: Optional[datetime] = None,
+    ) -> Optional[Trade]:
+        """Transition trade from WAITING_ENTRY to OPEN when entry order fills on exchange.
+        
         Args:
-            signal_id: FK to the source signal.
-            symbol: Trading pair.
-            side: ``BUY`` or ``SELL``.
-            leverage: Position leverage.
-            risk_date: Date of the daily risk config.
-            risk_res: Result from the risk calculator.
-            tp1_price / tp2_price / tp3_price: Optional take-profit prices.
-
+            trade_id: Trade primary key.
+            entry_price: Execution entry price.
+            avg_entry_price: Optional average entry price for partial fills.
+            opened_at: Position open timestamp.
+            
         Returns:
-            The newly created ``Trade`` instance (with ``trade_risk`` populated).
+            Updated Trade instance or None.
         """
-        trade = Trade(
-            signal_id=signal_id,
-            symbol=symbol,
-            side=side,
-            status="WAITING_ENTRY",
-            entry_price=risk_res.entry_price,
-            sl_price=risk_res.stop_loss_price,
-            tp1_price=tp1_price,
-            tp2_price=tp2_price,
-            tp3_price=tp3_price,
-            leverage=leverage,
-            margin_mode="ISOLATED",
-            position_size=risk_res.position_size,
-            remaining_qty=risk_res.position_size
-        )
+        trade = await self.get(trade_id)
+        if not trade:
+            return None
+
+        trade.entry_price = entry_price
+        trade.avg_entry_price = avg_entry_price if avg_entry_price is not None else entry_price
+        trade.status = "OPEN"
+        trade.opened_at = opened_at if opened_at is not None else datetime.now()
+        trade.updated_at = datetime.now()
+
         self.session.add(trade)
-        await self.session.flush()
+        await self.session.commit()
+        await self.session.refresh(trade)
+        return trade
 
-        trade_risk = TradeRisk(
-            trade_id=trade.id,
-            risk_date=risk_date,
-            entry=risk_res.entry_price,
-            stop=risk_res.stop_loss_price,
-            stop_distance=risk_res.stop_distance,
-            qty=risk_res.position_size,
-            margin=risk_res.required_margin,
-            leverage=leverage
-        )
-        self.session.add(trade_risk)
+    async def update_sl_price(
+        self, trade_id: int, new_sl_price: Decimal
+    ) -> Optional[Trade]:
+        """Update Stop Loss price when moving SL to BEP or Trailing Stop.
+        
+        Args:
+            trade_id: Trade primary key.
+            new_sl_price: New SL price level.
+            
+        Returns:
+            Updated Trade instance or None.
+        """
+        trade = await self.get(trade_id)
+        if not trade:
+            return None
 
+        trade.sl_price = new_sl_price
+        trade.updated_at = datetime.now()
+
+        self.session.add(trade)
+        await self.session.commit()
+        await self.session.refresh(trade)
+        return trade
+
+    async def reduce_position_qty(
+        self,
+        trade_id: int,
+        closed_qty: Decimal,
+        is_closed: bool = False,
+    ) -> Optional[Trade]:
+        """Reduce remaining quantity upon partial take profit fill, and auto-close when zero.
+        
+        Args:
+            trade_id: Trade primary key.
+            closed_qty: Filled lot quantity to deduct.
+            is_closed: Explicit close flag.
+            
+        Returns:
+            Updated Trade instance or None.
+        """
+        trade = await self.get(trade_id)
+        if not trade:
+            return None
+
+        new_remaining = Decimal(str(trade.remaining_qty)) - closed_qty
+        trade.remaining_qty = max(Decimal("0.0"), new_remaining)
+
+        if trade.remaining_qty <= Decimal("0.0") or is_closed:
+            trade.status = "CLOSED"
+            trade.closed_at = datetime.now()
+        else:
+            trade.status = "PARTIAL"
+
+        trade.updated_at = datetime.now()
+        self.session.add(trade)
         await self.session.commit()
         await self.session.refresh(trade)
         return trade
 
     async def update_trade_status(
-        self, trade_id: int, status: str,
-        opened_at: Optional[datetime] = None, closed_at: Optional[datetime] = None
-    ) -> None:
-        """Update the trade lifecycle status.
-
-        Values: ``WAITING_ENTRY``, ``OPEN``, ``PARTIAL``, ``CLOSED``, ``CANCELLED``.
+        self, trade_id: int, schema: "Union[TradeStatusUpdate, str]"
+    ) -> Optional[Trade]:
+        """Update trade lifecycle status and timestamps.
+        
+        Args:
+            trade_id: Trade primary key.
+            schema: TradeStatusUpdate payload or status string.
+            
+        Returns:
+            Updated Trade instance or None.
         """
-        values = {"status": status}
-        if opened_at is not None:
-            values["opened_at"] = opened_at
-        if closed_at is not None:
-            values["closed_at"] = closed_at
+        trade = await self.get(trade_id)
+        if not trade:
+            return None
 
-        stmt = update(Trade).where(Trade.id == trade_id).values(**values)
-        await self.session.execute(stmt)
+        if isinstance(schema, str):
+            trade.status = schema
+        else:
+            trade.status = schema.status
+            if schema.opened_at is not None:
+                trade.opened_at = schema.opened_at
+            if schema.closed_at is not None:
+                trade.closed_at = schema.closed_at
+
+        trade.updated_at = datetime.now()
+        self.session.add(trade)
         await self.session.commit()
-
-    # ------------------------------------------------------------------
-    # 3. ORDERS & EXECUTIONS
-    # ------------------------------------------------------------------
+        await self.session.refresh(trade)
+        return trade
 
     async def create_order(
         self,
@@ -144,200 +285,79 @@ class TradeRepository:
         purpose: str,
         order_type: str,
         side: str,
-        qty: float,
-        price: Optional[float] = None,
-        binance_order_id: Optional[str] = None,
-        client_order_id: Optional[str] = None
+        qty: Any,
+        price: Any,
+        binance_order_id: str,
     ) -> Order:
-        """Persist a new order submitted to Binance.
-
-        Args:
-            trade_id: FK to the parent trade.
-            purpose: Order role (ENTRY, TP1, SL, etc.).
-            order_type: MARKET, LIMIT, STOP_MARKET, TAKE_PROFIT_MARKET.
-            side: BUY or SELL.
-            qty: Order quantity.
-            price: Limit price (None for market orders).
-            binance_order_id: Binance-side order ID.
-            client_order_id: Client-generated ID.
-
-        Returns:
-            The newly created ``Order`` instance.
-        """
+        """Record an order under the given trade."""
         order = Order(
             trade_id=trade_id,
-            binance_order_id=binance_order_id,
-            client_order_id=client_order_id,
+            exchange_order_id=binance_order_id,
+            client_order_id=f"{purpose}_{trade_id}_{binance_order_id}",
+            order_type=order_type,
             purpose=purpose,
-            type=order_type,
             side=side,
-            price=price,
-            qty=qty,
-            status="NEW"
+            price=Decimal(str(price)),
+            qty=Decimal(str(qty)),
+            status="NEW",
         )
         self.session.add(order)
         await self.session.commit()
         await self.session.refresh(order)
         return order
 
-    async def update_order_status(
-        self, binance_order_id: str, status: str, filled_qty: Optional[float] = None
-    ) -> None:
-        """Update an order's status from the Binance WebSocket stream.
-
-        Status values: ``NEW``, ``PARTIALLY_FILLED``, ``FILLED``, ``CANCELED``,
-        ``EXPIRED``, ``REJECTED``.
-        """
-        values = {"status": status}
-        if filled_qty is not None:
-            values["filled_qty"] = filled_qty
-
-        stmt = update(Order).where(Order.binance_order_id == binance_order_id).values(**values)
-        await self.session.execute(stmt)
-        await self.session.commit()
-
-    async def record_execution(
+    async def log_event(
         self,
-        order_id: int,
         trade_id: int,
-        price: float,
-        qty: float,
-        commission: float = 0.0,
-        realized_pnl: float = 0.0
-    ) -> Execution:
-        """Log a partial or full fill from the Binance user data stream."""
-        execution = Execution(
-            order_id=order_id,
+        event_type: str,
+        payload_json: Optional[str] = None,
+    ) -> TradeEvent:
+        """Log a lifecycle event for the given trade."""
+        event = TradeEvent(
             trade_id=trade_id,
-            price=price,
-            qty=qty,
-            commission=commission,
-            realized_pnl=realized_pnl
+            event_type=event_type,
+            payload_json=payload_json,
         )
-        self.session.add(execution)
-        await self.session.commit()
-        return execution
-
-    async def get_trade_executions(self, trade_id: int) -> List[Execution]:
-        """Fetch all execution records linked to a specific trade."""
-        stmt = select(Execution).where(Execution.trade_id == trade_id)
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    # ------------------------------------------------------------------
-    # 4. EVENTS & SUMMARY
-    # ------------------------------------------------------------------
-
-    async def log_event(self, trade_id: int, event_type: str, payload_json: Optional[str] = None) -> None:
-        """Record a trade lifecycle event (SL_MOVED_TO_BEP, TP1, TRAILING_ENABLED, etc.)."""
-        event = TradeEvent(trade_id=trade_id, event_type=event_type, payload_json=payload_json)
         self.session.add(event)
         await self.session.commit()
+        await self.session.refresh(event)
+        return event
 
-    async def save_summary(
+    async def get_closed_trades_history(
         self,
-        trade_id: int,
-        gross_pnl: float,
-        net_pnl: float,
-        commission: float,
-        roi: float,
-        rr: float,
-        win: int,
-        duration_seconds: int,
-        close_reason: str,
-        closed_at: datetime,
-        funding: float = 0.0
-    ) -> TradeSummary:
-        """Persist the performance summary after a trade is closed."""
-        summary = TradeSummary(
-            trade_id=trade_id,
-            gross_pnl=gross_pnl,
-            net_pnl=net_pnl,
-            commission=commission,
-            funding=funding,
-            roi=roi,
-            rr=rr,
-            win=win,
-            duration_seconds=duration_seconds,
-            close_reason=close_reason,
-            closed_at=closed_at
-        )
-        self.session.add(summary)
-        await self.session.commit()
-        return summary
-
-    async def has_active_trade_for_symbol(self, symbol: str, side: Optional[str] = None) -> bool:
-        """Check whether an active trade exists for the given symbol and optional side.
-
-        Active statuses: ``WAITING_ENTRY``, ``OPEN``, ``PARTIAL``.
-        """
-        conditions = [
-            Trade.symbol == symbol,
-            Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"])
-        ]
-        if side is not None:
-            conditions.append(Trade.side == side)
-
-        stmt = select(Trade).where(*conditions)
-        result = await self.session.execute(stmt)
-        return result.scalars().first() is not None
-
-    async def get_active_trades(self) -> List[Trade]:
-        """Return all trades with status ``WAITING_ENTRY``, ``OPEN``, or ``PARTIAL``."""
-        stmt = select(Trade).where(Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]))
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_performance_summary(self) -> dict:
-        """Aggregate performance statistics from the ``trade_summary`` table.
-
+        account_id: int,
+        skip: int = 0,
+        limit: int = 50,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Trade]:
+        """Fetch historical closed and cancelled trades with pagination and date filter.
+        
+        Args:
+            account_id: FK to trading_accounts table.
+            skip: Offset.
+            limit: Maximum rows.
+            start_date: Optional filter start timestamp.
+            end_date: Optional filter end timestamp.
+            
         Returns:
-            A dict with keys ``total_trades``, ``winning_trades``,
-            ``losing_trades``, ``winrate``, ``total_gross_pnl``,
-            ``total_net_pnl``, and ``total_commission``.
+            List of closed Trade instances ordered by closed_at DESC.
         """
-        stmt = select(
-            func.count(TradeSummary.trade_id).label("total_trades"),
-            func.sum(TradeSummary.win).label("winning_trades"),
-            func.sum(TradeSummary.gross_pnl).label("total_gross_pnl"),
-            func.sum(TradeSummary.net_pnl).label("total_net_pnl"),
-            func.sum(TradeSummary.commission).label("total_commission"),
-            func.sum(TradeSummary.funding).label("total_funding")
+        stmt = (
+            select(Trade)
+            .where(
+                Trade.account_id == account_id,
+                Trade.status.in_(["CLOSED", "CANCELLED"])
+            )
+            .order_by(Trade.closed_at.desc().nullslast(), Trade.created_at.desc())
+            .offset(skip)
+            .limit(limit)
         )
-        result = await self.session.execute(stmt)
-        row = result.first()
-        if not row or not row.total_trades:
-            return {
-                "total_trades": 0, "winning_trades": 0, "losing_trades": 0,
-                "winrate": 0.0, "total_gross_pnl": 0.0, "total_net_pnl": 0.0,
-                "total_commission": 0.0, "total_funding": 0.0
-            }
 
-        total = row.total_trades or 0
-        win = row.winning_trades or 0
-        loss = total - win
-        winrate = (win / total * 100.0) if total > 0 else 0.0
+        if start_date is not None:
+            stmt = stmt.where(Trade.created_at >= start_date)
+        if end_date is not None:
+            stmt = stmt.where(Trade.created_at <= end_date)
 
-        return {
-            "total_trades": total,
-            "winning_trades": win,
-            "losing_trades": loss,
-            "winrate": winrate,
-            "total_gross_pnl": row.total_gross_pnl or 0.0,
-            "total_net_pnl": row.total_net_pnl or 0.0,
-            "total_commission": row.total_commission or 0.0,
-            "total_funding": row.total_funding or 0.0
-        }
-
-    async def get_expired_waiting_trades(self, max_hours: int = 4) -> List[Trade]:
-        """Return trades stuck in ``WAITING_ENTRY`` for longer than ``max_hours``.
-
-        Used by the cron scheduler to clean up orphan limit orders.
-        """
-        cutoff_time = datetime.now() - timedelta(hours=max_hours)
-        stmt = select(Trade).where(
-            Trade.status == "WAITING_ENTRY",
-            Trade.created_at <= cutoff_time
-        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

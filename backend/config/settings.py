@@ -11,19 +11,17 @@ class Settings(BaseSettings):
     development (testnet mode, 20x leverage, 70 % confidence threshold).
     """
 
-    BINANCE_API_KEY: str = ""
-    BINANCE_API_SECRET: str = ""
-    BINANCE_TESTNET: bool = True
-
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: int = 0
 
     DEFAULT_LEVERAGE: int = 20
     CONFIDENCE_THRESHOLD: float = 0.70
 
+    DATABASE_URL: str = ""
+
     LOG_LEVEL: str = "INFO"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 settings = Settings()

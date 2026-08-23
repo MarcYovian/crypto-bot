@@ -7,7 +7,6 @@ from typing import Optional, List
 from dataclasses import dataclass
 import ccxt.pro as ccxt
 
-from config.settings import settings
 from src.services.precision_filter import PrecisionFilterService, SymbolInfo
 from src.services.risk_calculator import RiskCalculationResult, RiskCalculatorService
 from src.repository.trade_repository import TradeRepository
@@ -54,22 +53,68 @@ class BinanceExecutionEngine:
     - Actual fill-price and margin retrieval from Binance positions.
     """
 
-    def __init__(self, trade_repo: Optional[TradeRepository] = None):
+    def __init__(
+        self,
+        trade_repo: Optional[TradeRepository] = None,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        testnet: bool = True,
+    ):
         self.trade_repo = trade_repo
+        self.api_key = api_key or ""
+        self.secret_key = secret_key or ""
+        self.testnet = testnet
+
         self.exchange = ccxt.binanceusdm({
-            'apiKey': settings.BINANCE_API_KEY,
-            'secret': settings.BINANCE_API_SECRET,
+            'apiKey': self.api_key,
+            'secret': self.secret_key,
             'enableRateLimit': True,
             'options': {
                 'defaultType': 'future',
+                'adjustForTimeDifference': True,
             }
         })
 
-        if settings.BINANCE_TESTNET:
-            self.exchange.enable_demo_trading(True)
+        if self.testnet:
+            if hasattr(self.exchange, "enable_demo_trading"):
+                self.exchange.enable_demo_trading(True)
+            else:
+                self.exchange.set_sandbox_mode(True)
             logger.info("BinanceExecutionEngine running in TESTNET mode (Sandbox).")
         else:
             logger.info("BinanceExecutionEngine running in LIVE mode (Real Market).")
+
+    def reconfigure(
+        self,
+        api_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        testnet: Optional[bool] = None,
+    ) -> None:
+        """Dynamically update execution engine credentials and network mode."""
+        if api_key is not None:
+            self.api_key = api_key
+            self.exchange.apiKey = api_key
+        if secret_key is not None:
+            self.secret_key = secret_key
+            self.exchange.secret = secret_key
+        if testnet is not None:
+            self.testnet = testnet
+            if self.testnet:
+                if hasattr(self.exchange, "enable_demo_trading"):
+                    self.exchange.enable_demo_trading(True)
+                else:
+                    self.exchange.set_sandbox_mode(True)
+                logger.info("BinanceExecutionEngine switched to TESTNET mode.")
+            else:
+                if hasattr(self.exchange, "enable_demo_trading"):
+                    self.exchange.enable_demo_trading(False)
+                else:
+                    self.exchange.set_sandbox_mode(False)
+                logger.info("BinanceExecutionEngine switched to LIVE mode.")
+
+    async def close(self) -> None:
+        """Alias for close_connection."""
+        await self.close_connection()
 
     async def fetch_balance(self) -> dict:
         """Fetch the USDT balance from the Binance Futures account.
@@ -178,37 +223,42 @@ class BinanceExecutionEngine:
             ticker = await self.exchange.fetch_ticker(symbol)
             current_price = float(ticker['last'])
 
+            entry_price_flt = float(risk_res.entry_price)
+            sl_price_flt = float(risk_res.stop_loss_price)
+            pos_size_flt = float(risk_res.position_size)
+
             tp1 = tp_prices[0] if tp_prices else None
             is_valid, validation_msg = await self.validate_signal_market_state(
                 current_price=current_price,
-                entry_price=risk_res.entry_price,
-                sl_price=risk_res.stop_loss_price,
+                entry_price=entry_price_flt,
+                sl_price=sl_price_flt,
                 tp1_price=tp1,
                 side=side
             )
 
             if not is_valid:
                 logger.warning(f"[Trade #{trade_id}] {validation_msg}")
-                await self.trade_repo.update_trade_status(trade_id, "CANCELLED")
-                await self.trade_repo.log_event(trade_id, "FORCE_CLOSE", payload_json=f'{{"reason": "{validation_msg}"}}')
+                if self.trade_repo:
+                    await self.trade_repo.update_trade_status(trade_id, "CANCELLED")
+                    await self.trade_repo.log_event(trade_id, "FORCE_CLOSE", payload_json=f'{{"reason": "{validation_msg}"}}')
                 return ExecutionResponse(success=False, trade_id=trade_id, error_message=validation_msg)
 
             # 2. Logika Toleransi Harga 0.2% untuk Menentukan Market vs Limit
             TOLERANCE_PCT = 0.002
-            tolerance_price = risk_res.entry_price * TOLERANCE_PCT
+            tolerance_price = entry_price_flt * TOLERANCE_PCT
 
             use_market_order = False
             if side == "BUY":
-                if current_price <= risk_res.entry_price + tolerance_price:
+                if current_price <= entry_price_flt + tolerance_price:
                     use_market_order = True
             elif side == "SELL":
-                if current_price >= risk_res.entry_price - tolerance_price:
+                if current_price >= entry_price_flt - tolerance_price:
                     use_market_order = True
 
             execution_type_str = "MARKET" if use_market_order else "LIMIT"
 
             # Hitung Ulang Risk & Position Size khusus MARKET Order menggunakan current_price terkini
-            final_position_size = risk_res.position_size
+            final_position_size = pos_size_flt
             if use_market_order:
                 if not symbol_info:
                     symbol_info = await self.fetch_symbol_info(symbol)
@@ -258,7 +308,7 @@ class BinanceExecutionEngine:
                     type='limit',
                     side=entry_side,
                     amount=final_position_size,
-                    price=risk_res.entry_price,
+                    price=entry_price_flt,
                     params={'timeInForce': 'GTC'}
                 )
                 
@@ -272,7 +322,7 @@ class BinanceExecutionEngine:
                     order_type=execution_type_str,
                     side=side,
                     qty=final_position_size,
-                    price=risk_res.entry_price,
+                    price=entry_price_flt,
                     binance_order_id=entry_order_id_str
                 )
 
@@ -299,7 +349,7 @@ class BinanceExecutionEngine:
                     side=exit_side,
                     amount=final_position_size,
                     params={
-                        'stopPrice': risk_res.stop_loss_price,
+                        'stopPrice': sl_price_flt,
                         'closePosition': True  # Specific for Binance USDT-M STOP_MARKET
                     }
                 )
@@ -312,7 +362,7 @@ class BinanceExecutionEngine:
                         order_type="STOP_MARKET",
                         side=exit_side.upper(),
                         qty=final_position_size,
-                        price=risk_res.stop_loss_price,
+                        price=sl_price_flt,
                         binance_order_id=sl_order_id
                     )
 
@@ -355,9 +405,9 @@ class BinanceExecutionEngine:
                     await self.trade_repo.update_trade_status(trade_id, "WAITING_ENTRY")
 
             # 6. Ambil Data Realita Binance (Actual Fill Price, Margin, dan Potensi Loss SL)
-            actual_entry_price = risk_res.entry_price
-            actual_margin = risk_res.required_margin
-            actual_sl_loss = risk_res.risk_amount
+            actual_entry_price = entry_price_flt
+            actual_margin = float(risk_res.required_margin)
+            actual_sl_loss = float(risk_res.risk_amount)
 
             try:
                 positions = await self.exchange.fetch_positions([symbol])
@@ -366,7 +416,7 @@ class BinanceExecutionEngine:
                     initial_margin = float(pos.get('initialMargin') or pos.get('maintMargin') or 0.0)
                     if entry_p > 0:
                         actual_entry_price = entry_p
-                        actual_sl_loss = abs(actual_entry_price - risk_res.stop_loss_price) * final_position_size
+                        actual_sl_loss = abs(actual_entry_price - sl_price_flt) * final_position_size
                         if initial_margin > 0:
                             actual_margin = initial_margin
                         else:
@@ -396,8 +446,9 @@ class BinanceExecutionEngine:
 
         except Exception as e:
             logger.error(f"[Trade #{trade_id}] Execution Failed: {str(e)}")
-            await self.trade_repo.update_trade_status(trade_id, "CANCELLED")
-            await self.trade_repo.log_event(trade_id, "FORCE_CLOSE", payload_json=f'{{"error": "{str(e)}"}}')
+            if self.trade_repo:
+                await self.trade_repo.update_trade_status(trade_id, "CANCELLED")
+                await self.trade_repo.log_event(trade_id, "FORCE_CLOSE", payload_json=f'{{"error": "{str(e)}"}}')
 
             return ExecutionResponse(
                 success=False,

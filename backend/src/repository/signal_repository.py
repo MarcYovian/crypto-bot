@@ -1,99 +1,142 @@
-"""Data-access layer for the ``trading_signals`` table."""
+"""Data-access repository for TradingSignal entity."""
 
+from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import select, update
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import TradingSignal
-from src.services.signal_parser import ParsedSignal
+from src.schemas.signal import TradingSignalCreate, TradingSignalUpdate
+from src.repository.base import BaseRepository
 
 
-class SignalRepository:
-    """CRUD operations for trading signals."""
+class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, TradingSignalUpdate]):
+    """CRUD repository for the ``trading_signals`` table."""
 
     def __init__(self, session: AsyncSession):
-        self.session = session
+        super().__init__(TradingSignal, session)
 
-    async def create_signal_from_parsed(
-        self,
-        parsed: ParsedSignal,
-        telegram_message_id: Optional[int] = None,
-        source: str = "TELEGRAM"
-    ) -> TradingSignal:
-        """Persist a parsed signal to the ``trading_signals`` table.
-
-        Low-confidence signals (< 70 %) are created with a ``PENDING``
-        confirmation status so the user can approve or reject them manually.
-
+    async def get_by_telegram_message_id(
+        self, message_id: int
+    ) -> Optional[TradingSignal]:
+        """Fetch signal by its unique Telegram message ID for deduplication.
+        
         Args:
-            parsed: The parsed signal dataclass.
-            telegram_message_id: Original Telegram message ID for dedup.
-            source: Signal source identifier.
-
+            message_id: Original Telegram message ID.
+            
         Returns:
-            The newly created ``TradingSignal`` ORM instance.
+            TradingSignal instance or None if not found.
         """
-        conf_status = "PENDING" if (parsed.confidence and parsed.confidence < 0.70) else "NOT_REQUIRED"
-
-        signal = TradingSignal(
-            telegram_message_id=telegram_message_id,
-            source=source,
-            symbol=parsed.symbol,
-            side=parsed.side,
-            entry_min=parsed.entry_min,
-            entry_max=parsed.entry_max,
-            sl_price=parsed.sl_price,
-            tp1_price=parsed.tp_prices[0] if len(parsed.tp_prices) > 0 else None,
-            tp2_price=parsed.tp_prices[1] if len(parsed.tp_prices) > 1 else None,
-            tp3_price=parsed.tp_prices[2] if len(parsed.tp_prices) > 2 else None,
-            confidence=parsed.confidence,
-            status="RECEIVED" if parsed.is_valid else "REJECTED",
-            confirmation_status=conf_status
+        stmt = (
+            select(TradingSignal)
+            .where(TradingSignal.telegram_message_id == message_id)
+            .limit(1)
         )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
+    async def has_active_signal(
+        self, instrument_id: int, side: str
+    ) -> bool:
+        """Check if an active signal already exists for this pair and side.
+        
+        Active statuses: 'RECEIVED' or 'EXECUTED'.
+        
+        Args:
+            instrument_id: FK to instruments table.
+            side: 'BUY' or 'SELL'.
+            
+        Returns:
+            True if an active signal exists, False otherwise.
+        """
+        stmt = (
+            select(TradingSignal)
+            .where(
+                TradingSignal.instrument_id == instrument_id,
+                func.upper(TradingSignal.side) == side.strip().upper(),
+                TradingSignal.status.in_(["RECEIVED", "EXECUTED"])
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def get_pending_confirmation_signals(self) -> List[TradingSignal]:
+        """Fetch all signals awaiting manual user confirmation via Telegram buttons.
+        
+        Returns:
+            List of TradingSignal instances with confirmation_status == 'PENDING'.
+        """
+        stmt = (
+            select(TradingSignal)
+            .where(TradingSignal.confirmation_status == "PENDING")
+            .order_by(TradingSignal.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_confirmation_status(
+        self, signal_id: int, confirmation_status: str
+    ) -> Optional[TradingSignal]:
+        """Update user confirmation status ('APPROVED' or 'REJECTED').
+        
+        Args:
+            signal_id: Signal primary key.
+            confirmation_status: 'APPROVED' or 'REJECTED'.
+            
+        Returns:
+            Updated TradingSignal instance or None.
+        """
+        signal = await self.get(signal_id)
+        if not signal:
+            return None
+
+        signal.confirmation_status = confirmation_status.strip().upper()
+        signal.updated_at = datetime.now()
         self.session.add(signal)
         await self.session.commit()
         await self.session.refresh(signal)
         return signal
 
-    async def get_by_id(self, signal_id: int) -> Optional[TradingSignal]:
-        """Fetch a signal by its primary key."""
-        stmt = select(TradingSignal).where(TradingSignal.id == signal_id)
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+    async def update_status(
+        self, signal_id: int, status: str
+    ) -> Optional[TradingSignal]:
+        """Update signal lifecycle status ('RECEIVED', 'EXECUTED', 'CANCELLED', 'EXPIRED').
+        
+        Args:
+            signal_id: Signal primary key.
+            status: Target status string.
+            
+        Returns:
+            Updated TradingSignal instance or None.
+        """
+        signal = await self.get(signal_id)
+        if not signal:
+            return None
 
-    async def update_confirmation_status(self, signal_id: int, status: str) -> None:
-        """Set the user-confirmation status (``APPROVED`` / ``REJECTED``)."""
-        stmt = (
-            update(TradingSignal)
-            .where(TradingSignal.id == signal_id)
-            .values(confirmation_status=status)
-        )
-        await self.session.execute(stmt)
+        signal.status = status.strip().upper()
+        signal.updated_at = datetime.now()
+        self.session.add(signal)
         await self.session.commit()
+        await self.session.refresh(signal)
+        return signal
 
-    async def update_signal_status(self, signal_id: int, status: str) -> None:
-        """Advance the signal lifecycle status.
-
-        Typical transitions: ``RECEIVED`` → ``EXECUTED`` / ``REJECTED`` /
-        ``CANCELLED`` / ``EXPIRED``.
+    async def get_signals_by_instrument(
+        self, instrument_id: int, limit: int = 50
+    ) -> List[TradingSignal]:
+        """Fetch recent signals for a specific trading pair.
+        
+        Args:
+            instrument_id: FK to instruments table.
+            limit: Maximum signals to return.
+            
+        Returns:
+            List of TradingSignal instances.
         """
         stmt = (
-            update(TradingSignal)
-            .where(TradingSignal.id == signal_id)
-            .values(status=status)
-        )
-        await self.session.execute(stmt)
-        await self.session.commit()
-
-    async def is_duplicate_active_signal(self, symbol: str, side: str) -> bool:
-        """Return ``True`` if an active signal already exists for this pair and side.
-
-        An active signal is one with status ``RECEIVED`` or ``EXECUTED``.
-        """
-        stmt = select(TradingSignal).where(
-            TradingSignal.symbol == symbol,
-            TradingSignal.side == side,
-            TradingSignal.status.in_(["RECEIVED", "EXECUTED"])
+            select(TradingSignal)
+            .where(TradingSignal.instrument_id == instrument_id)
+            .order_by(TradingSignal.created_at.desc())
+            .limit(limit)
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        return list(result.scalars().all())
