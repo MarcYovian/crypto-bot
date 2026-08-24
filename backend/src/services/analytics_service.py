@@ -90,7 +90,7 @@ class AnalyticsService:
         )
 
     async def get_equity_curve(self, account_id: int = 1, timeframe: str = "30d") -> List[EquityPointDTO]:
-        """Compute historical equity curve points for charting."""
+        """Compute historical equity curve points for charting without N+1 query loop."""
         today = datetime.now(timezone.utc).date()
         if timeframe == "7d":
             start_date = today - timedelta(days=7)
@@ -103,17 +103,18 @@ class AnalyticsService:
 
         history = await self.daily_risk_repo.get_daily_history(account_id, start_date, today)
 
+        start_dt = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        end_dt = datetime.combine(today, time.max, tzinfo=timezone.utc)
+        pnl_map = await self.trade_summary_repo.get_daily_pnl_map(
+            account_id=account_id,
+            start_date=start_dt,
+            end_date=end_dt,
+        )
+
         points: List[EquityPointDTO] = []
         for snapshot in history:
             point_dt = datetime.combine(snapshot.date, time.min, tzinfo=timezone.utc)
-            start_snap = datetime.combine(snapshot.date, time.min, tzinfo=timezone.utc)
-            end_snap = datetime.combine(snapshot.date, time.max, tzinfo=timezone.utc)
-            snap_perf = await self.trade_summary_repo.get_performance_summary(
-                account_id=account_id,
-                start_date=start_snap,
-                end_date=end_snap,
-            )
-            pnl_day = float(snap_perf.get("total_net_pnl", 0.0))
+            pnl_day = pnl_map.get(snapshot.date, 0.0)
             points.append(
                 EquityPointDTO(
                     timestamp=point_dt,
