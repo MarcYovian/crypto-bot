@@ -4,7 +4,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Any, Dict
 from src.domain.entities.trade import OrderFillDTO
-from src.domain.exceptions.trade import TradeNotFoundError
+from src.domain.exceptions.trade import (
+    TradeNotFoundError,
+    InvalidTradeStateError,
+    TradeExecutionError,
+)
 from src.schemas.order import ExecutionCreate, OrderCreate
 from src.schemas.event_summary import TradeSummaryCreate
 from src.repository.trade_repository import TradeRepository
@@ -399,12 +403,23 @@ class PositionManager:
         return summary
 
     async def close_position_market(self, trade_id: int, reason: str = "MANUAL_CLOSE") -> bool:
-        """Emergency or manual market close of an open trade."""
+        """Emergency or manual market close of an open trade.
+
+        Raises:
+            TradeNotFoundError: If trade does not exist.
+            InvalidTradeStateError: If trade is already CLOSED or CANCELLED.
+        """
         trade = await self.trade_repo.get_detail(trade_id)
         if not trade:
             trade = await self.trade_repo.get(trade_id)
-        if not trade or trade.status not in ("OPEN", "PARTIAL", "WAITING_ENTRY"):
-            return False
+        if not trade:
+            raise TradeNotFoundError(f"Trade with ID {trade_id} was not found.", trade_id=trade_id)
+
+        if trade.status in ("CLOSED", "CANCELLED"):
+            raise InvalidTradeStateError(
+                f"Trade #{trade_id} cannot be closed because it is already {trade.status}.",
+                trade_id=trade_id,
+            )
 
         sym = trade.instrument.symbol if getattr(trade, "instrument", None) else "BTCUSDT"
         exit_side = "SELL" if trade.side == "BUY" else "BUY"

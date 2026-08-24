@@ -620,6 +620,23 @@ class TradeService:
             summary=summary_dto,
         )
 
+    async def get_trade_detail_or_raise(self, trade_id: int) -> TradeDetailDTO:
+        """Fetch deep nested trade details or raise TradeNotFoundError.
+
+        Args:
+            trade_id: Trade primary key.
+
+        Returns:
+            TradeDetailDTO.
+
+        Raises:
+            TradeNotFoundError: If trade does not exist.
+        """
+        detail = await self.get_trade_detail(trade_id)
+        if not detail:
+            raise TradeNotFoundError(f"Trade with ID {trade_id} was not found.", trade_id=trade_id)
+        return detail
+
     async def close_trade_manually(
         self,
         trade_id: int,

@@ -36,6 +36,13 @@ from src.domain.exceptions.trade import (
     SymbolNotWhitelistedError,
     DailyRiskLimitReachedError,
 )
+from src.domain.exceptions.auth import (
+    AuthError,
+    InvalidCredentialsError,
+    AccountDisabledError,
+    InvalidRefreshTokenError,
+    UserNotFoundError,
+)
 
 __all__ = [
     "DomainError",
@@ -64,4 +71,9 @@ __all__ = [
     "PairAlreadyActiveError",
     "SymbolNotWhitelistedError",
     "DailyRiskLimitReachedError",
+    "AuthError",
+    "InvalidCredentialsError",
+    "AccountDisabledError",
+    "InvalidRefreshTokenError",
+    "UserNotFoundError",
 ]

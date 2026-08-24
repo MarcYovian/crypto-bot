@@ -12,19 +12,11 @@ from src.utils.security import (
     create_refresh_token,
     decode_token,
 )
-from src.domain.exceptions.base import DomainError
-
-
-class InvalidCredentialsError(DomainError):
-    """Raised when authentication credentials are invalid."""
-
-
-class AccountDisabledError(DomainError):
-    """Raised when account is inactive or disabled."""
-
-
-class InvalidRefreshTokenError(DomainError):
-    """Raised when refresh token is malformed, expired, or invalid."""
+from src.domain.exceptions.auth import (
+    InvalidCredentialsError,
+    AccountDisabledError,
+    InvalidRefreshTokenError,
+)
 
 
 class AuthService:

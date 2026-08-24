@@ -11,6 +11,11 @@ from src.api.deps import (
     get_cache,
 )
 from src.database.models import User
+from src.domain.exceptions.trade import (
+    TradeNotFoundError,
+    InvalidTradeStateError,
+    TradeExecutionError,
+)
 from src.schemas.trade import (
     ActiveTradeDTO,
     PaginatedTradeHistoryDTO,
@@ -72,13 +77,13 @@ async def get_trade_detail(
     trade_service: TradeService = Depends(get_trade_service),
 ) -> TradeDetailDTO:
     """Fetch deep trade details with all 5 child relationships: risk, orders, executions, events, and summary."""
-    trade_detail = await trade_service.get_trade_detail(trade_id=id)
-    if not trade_detail:
+    try:
+        return await trade_service.get_trade_detail_or_raise(trade_id=id)
+    except TradeNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trade with ID {id} was not found.",
-        )
-    return trade_detail
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/{id}/close", response_model=GenericActionResponse, summary="Emergency/manual position close")
@@ -86,30 +91,27 @@ async def manual_close_trade(
     id: int = Path(..., ge=1, description="Trade Primary Key ID"),
     payload: CloseTradeRequest = CloseTradeRequest(),
     current_user: User = Depends(get_current_user),
-    trade_service: TradeService = Depends(get_trade_service),
     position_manager: PositionManager = Depends(get_position_manager),
     cache: AsyncInMemoryCache = Depends(get_cache),
 ) -> GenericActionResponse:
     """Manually close an open position by submitting an immediate market order to Binance and finalizing trade record."""
-    trade = await trade_service.trade_repo.get(id)
-    if not trade:
+    try:
+        await position_manager.close_position_market(trade_id=id, reason=payload.reason)
+    except TradeNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trade with ID {id} was not found.",
-        )
-
-    if trade.status in ("CLOSED", "CANCELLED"):
+            detail=str(exc),
+        ) from exc
+    except InvalidTradeStateError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Trade #{id} cannot be closed because it is already {trade.status}.",
-        )
-
-    success = await position_manager.close_position_market(trade_id=id, reason=payload.reason)
-    if not success:
+            detail=str(exc),
+        ) from exc
+    except TradeExecutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute manual market closure for trade #{id}.",
-        )
+            detail=str(exc),
+        ) from exc
 
     # Invalidate dashboard summary and equity caches
     await cache.invalidate("analytics:summary")
