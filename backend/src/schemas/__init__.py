@@ -4,6 +4,8 @@ from src.schemas.common import (
     BaseSchema,
     TimestampMixin,
     PaginatedResponse,
+    GenericActionResponse,
+    ErrorResponse,
 )
 
 from src.schemas.master import (
@@ -71,6 +73,17 @@ from src.schemas.trade import (
     TradeStatusUpdate,
     TradeRead,
     TradeDetailRead,
+    ActiveTradeDTO,
+    ActiveTradeTPLevelDTO,
+    TradeHistoryItemDTO,
+    PaginatedTradeHistoryDTO,
+    TradeRiskDetailDTO,
+    TradeOrderDetailDTO,
+    TradeExecutionDetailDTO,
+    TradeEventDetailDTO,
+    TradeSummaryDetailDTO,
+    TradeDetailDTO,
+    CloseTradeRequest,
 )
 
 from src.schemas.order import (
@@ -122,6 +135,8 @@ __all__ = [
     "BaseSchema",
     "TimestampMixin",
     "PaginatedResponse",
+    "GenericActionResponse",
+    "ErrorResponse",
     # Master
     "ExchangeBase",
     "ExchangeCreate",
@@ -181,6 +196,17 @@ __all__ = [
     "TradeStatusUpdate",
     "TradeRead",
     "TradeDetailRead",
+    "ActiveTradeDTO",
+    "ActiveTradeTPLevelDTO",
+    "TradeHistoryItemDTO",
+    "PaginatedTradeHistoryDTO",
+    "TradeRiskDetailDTO",
+    "TradeOrderDetailDTO",
+    "TradeExecutionDetailDTO",
+    "TradeEventDetailDTO",
+    "TradeSummaryDetailDTO",
+    "TradeDetailDTO",
+    "CloseTradeRequest",
     # Order & Execution
     "OrderBase",
     "OrderCreate",
@@ -216,5 +242,3 @@ __all__ = [
     "AnalyticsSummaryDTO",
     "EquityPointDTO",
 ]
-
-

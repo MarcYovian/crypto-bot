@@ -273,7 +273,9 @@ class PositionManager:
         result_type: Optional[str] = None,
     ) -> Any:
         """Finalize closed trade, cancel remaining orders, calculate PnL, and save TradeSummary."""
-        trade = await self.trade_repo.get(trade_id)
+        trade = await self.trade_repo.get_detail(trade_id)
+        if not trade:
+            trade = await self.trade_repo.get(trade_id)
         if not trade:
             raise TradeNotFoundError(f"Trade {trade_id} not found", trade_id=trade_id)
 
@@ -398,7 +400,9 @@ class PositionManager:
 
     async def close_position_market(self, trade_id: int, reason: str = "MANUAL_CLOSE") -> bool:
         """Emergency or manual market close of an open trade."""
-        trade = await self.trade_repo.get(trade_id)
+        trade = await self.trade_repo.get_detail(trade_id)
+        if not trade:
+            trade = await self.trade_repo.get(trade_id)
         if not trade or trade.status not in ("OPEN", "PARTIAL", "WAITING_ENTRY"):
             return False
 

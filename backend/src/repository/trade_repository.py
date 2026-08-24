@@ -18,9 +18,9 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
         super().__init__(Trade, session)
 
     async def get_detail(self, trade_id: int) -> Optional[Trade]:
-        """Fetch comprehensive trade detail with all 5 child relationships eagerly loaded.
+        """Fetch comprehensive trade detail with all child relationships eagerly loaded.
         
-        Loads: trade_risk, orders, executions, events, and summary via selectinload.
+        Loads: instrument, trade_risk, orders, executions, events, and summary via selectinload.
         
         Args:
             trade_id: Trade primary key ID.
@@ -31,6 +31,7 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
         stmt = (
             select(Trade)
             .options(
+                selectinload(Trade.instrument),
                 selectinload(Trade.trade_risk),
                 selectinload(Trade.orders),
                 selectinload(Trade.executions),
