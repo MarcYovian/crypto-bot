@@ -35,6 +35,8 @@ from src.repository.trade_event_repository import TradeEventRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.repository.bot_log_repository import BotLogRepository
 from src.repository.bot_setting_repository import BotSettingRepository
+from src.repository.user_repository import UserRepository
+from src.utils.security import get_password_hash
 
 from src.clients.binance_client import BinanceRestClient, BinanceWebSocketClient
 from src.clients.telegram_client import TelegramNotifierClient, TelegramChannelListener
@@ -95,6 +97,15 @@ class ApplicationContainer:
         active_testnet: bool = True
 
         async with self.session_maker() as init_session:
+            # 0. Ensure default admin user is seeded
+            user_repo = UserRepository(init_session)
+            default_user = getattr(settings, "DEFAULT_ADMIN_USERNAME", "admin")
+            default_pass = getattr(settings, "DEFAULT_ADMIN_PASSWORD", "AdminPassword123!")
+            await user_repo.ensure_default_admin(
+                default_username=default_user,
+                default_password_hash=get_password_hash(default_pass),
+            )
+
             acc_repo = TradingAccountRepository(init_session)
             cred_repo = TradingCredentialRepository(init_session)
 

@@ -6,16 +6,16 @@ Membangun dan memodernisasi lapisan **Business Logic Domain & Services** untuk p
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/domain/entities/signal.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/entities/signal.py) *(Domain DTOs: ParsedSignalDTO, SignalTargetDTO)*
-* `[NEW]` [`backend/src/domain/entities/risk.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/entities/risk.py) *(Domain DTOs: RiskCalculationResultDTO, TPAllocationDTO)*
-* `[NEW]` [`backend/src/domain/entities/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/entities/__init__.py)
-* `[NEW]` [`backend/src/domain/exceptions/signal.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/signal.py) *(Signal Domain Exceptions)*
-* `[NEW]` [`backend/src/domain/exceptions/risk.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/risk.py) *(Risk Domain Exceptions)*
-* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/__init__.py)
-* `[NEW]` [`backend/src/services/precision_filter.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/precision_filter.py) *(PrecisionFilterService)*
-* `[MODIFY]` [`backend/src/services/signal_parser.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/signal_parser.py) *(SignalParserService)*
-* `[MODIFY]` [`backend/src/services/risk_calculator.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/risk_calculator.py) *(RiskCalculatorService)*
-* `[NEW]` [`backend/tests/services/test_signal_risk_services.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/services/test_signal_risk_services.py)
+* `[NEW]` [`backend/src/domain/entities/signal.py`](../backend/src/domain/entities/signal.py) *(Domain DTOs: ParsedSignalDTO, SignalTargetDTO)*
+* `[NEW]` [`backend/src/domain/entities/risk.py`](../backend/src/domain/entities/risk.py) *(Domain DTOs: RiskCalculationResultDTO, TPAllocationDTO)*
+* `[NEW]` [`backend/src/domain/entities/__init__.py`](../backend/src/domain/entities/__init__.py)
+* `[NEW]` [`backend/src/domain/exceptions/signal.py`](../backend/src/domain/exceptions/signal.py) *(Signal Domain Exceptions)*
+* `[NEW]` [`backend/src/domain/exceptions/risk.py`](../backend/src/domain/exceptions/risk.py) *(Risk Domain Exceptions)*
+* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](../backend/src/domain/exceptions/__init__.py)
+* `[NEW]` [`backend/src/services/precision_filter.py`](../backend/src/services/precision_filter.py) *(PrecisionFilterService)*
+* `[MODIFY]` [`backend/src/services/signal_parser.py`](../backend/src/services/signal_parser.py) *(SignalParserService)*
+* `[MODIFY]` [`backend/src/services/risk_calculator.py`](../backend/src/services/risk_calculator.py) *(RiskCalculatorService)*
+* `[NEW]` [`backend/tests/services/test_signal_risk_services.py`](../backend/tests/services/test_signal_risk_services.py)
 
 ---
 

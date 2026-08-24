@@ -8,13 +8,13 @@ Membangun dan memodernisasi **Jantung Eksekusi & Pemantauan Perdagangan (*Core T
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/domain/entities/trade.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/entities/trade.py) *(Domain DTOs: OrderFillDTO, TradeExecutionResultDTO)*
-* `[MODIFY]` [`backend/src/domain/entities/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/entities/__init__.py)
-* `[NEW]` [`backend/src/domain/exceptions/trade.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/trade.py) *(Trade Domain Exceptions)*
-* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/__init__.py)
-* `[MODIFY]` [`backend/src/services/trade_service.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/trade_service.py) *(TradeService)*
-* `[MODIFY]` [`backend/src/services/position_manager.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/position_manager.py) *(PositionManager)*
-* `[NEW]` [`backend/tests/services/test_trade_position_services.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/services/test_trade_position_services.py)
+* `[NEW]` [`backend/src/domain/entities/trade.py`](../backend/src/domain/entities/trade.py) *(Domain DTOs: OrderFillDTO, TradeExecutionResultDTO)*
+* `[MODIFY]` [`backend/src/domain/entities/__init__.py`](../backend/src/domain/entities/__init__.py)
+* `[NEW]` [`backend/src/domain/exceptions/trade.py`](../backend/src/domain/exceptions/trade.py) *(Trade Domain Exceptions)*
+* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](../backend/src/domain/exceptions/__init__.py)
+* `[MODIFY]` [`backend/src/services/trade_service.py`](../backend/src/services/trade_service.py) *(TradeService)*
+* `[MODIFY]` [`backend/src/services/position_manager.py`](../backend/src/services/position_manager.py) *(PositionManager)*
+* `[NEW]` [`backend/tests/services/test_trade_position_services.py`](../backend/tests/services/test_trade_position_services.py)
 
 ---
 

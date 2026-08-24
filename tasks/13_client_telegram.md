@@ -6,11 +6,11 @@ Membangun lapisan klien **Telegram Communication** (`TelegramNotifierClient` unt
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/domain/exceptions/telegram.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/telegram.py) *(Domain Exceptions untuk Telegram)*
-* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/__init__.py) *(Re-export Exceptions)*
-* `[NEW]` [`backend/src/clients/telegram_client.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/clients/telegram_client.py) *(Telegram Bot & Notifier Client)*
-* `[MODIFY]` [`backend/src/clients/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/clients/__init__.py) *(Central Export Clients)*
-* `[NEW]` [`backend/tests/clients/test_telegram_client.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/clients/test_telegram_client.py)
+* `[NEW]` [`backend/src/domain/exceptions/telegram.py`](../backend/src/domain/exceptions/telegram.py) *(Domain Exceptions untuk Telegram)*
+* `[MODIFY]` [`backend/src/domain/exceptions/__init__.py`](../backend/src/domain/exceptions/__init__.py) *(Re-export Exceptions)*
+* `[NEW]` [`backend/src/clients/telegram_client.py`](../backend/src/clients/telegram_client.py) *(Telegram Bot & Notifier Client)*
+* `[MODIFY]` [`backend/src/clients/__init__.py`](../backend/src/clients/__init__.py) *(Central Export Clients)*
+* `[NEW]` [`backend/tests/clients/test_telegram_client.py`](../backend/tests/clients/test_telegram_client.py)
 
 ---
 

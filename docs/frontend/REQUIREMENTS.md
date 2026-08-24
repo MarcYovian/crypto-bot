@@ -3,8 +3,8 @@
 **Document**: Frontend Requirements Specification (`REQUIREMENTS.md`)  
 **Version**: 2.0.0  
 **Status**: Approved / In Development  
-**Target Backend**: FastAPI REST & WebSocket API v2.0.0 ([docs/openapi.yaml](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/openapi.yaml))  
-**Related Document**: [docs/frontend/PRD.md](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/frontend/PRD.md)  
+**Target Backend**: FastAPI REST & WebSocket API v2.0.0 ([docs/openapi.yaml](../openapi.yaml))  
+**Related Document**: [docs/frontend/PRD.md](./PRD.md)  
 
 ---
 

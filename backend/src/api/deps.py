@@ -135,6 +135,8 @@ def get_instrument_service(session: AsyncSession = Depends(get_db_session)) -> I
         exchange_repo=ExchangeRepository(session),
         watchlist_repo=WatchlistRepository(session),
         bracket_repo=InstrumentLeverageBracketRepository(session),
+        credential_repo=TradingCredentialRepository(session),
+        account_repo=TradingAccountRepository(session),
         binance_client=BinanceRestClient(),
     )
 
@@ -147,6 +149,8 @@ def get_watchlist_service(session: AsyncSession = Depends(get_db_session)) -> Wa
         exchange_repo=ExchangeRepository(session),
         watchlist_repo=WatchlistRepository(session),
         bracket_repo=InstrumentLeverageBracketRepository(session),
+        credential_repo=TradingCredentialRepository(session),
+        account_repo=TradingAccountRepository(session),
         binance_client=BinanceRestClient(),
     )
     return WatchlistService(

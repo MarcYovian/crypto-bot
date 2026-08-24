@@ -4,7 +4,7 @@
 **Version**: 2.0.0  
 **Status**: Approved / In Development  
 **Target Platform**: Web Frontend (Next.js 14 / Vite React + TypeScript)  
-**Related Documents**: [docs/frontend/PRD.md](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/frontend/PRD.md) | [docs/frontend/REQUIREMENTS.md](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/frontend/REQUIREMENTS.md) | [docs/frontend/FEATURES.md](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/frontend/FEATURES.md)  
+**Related Documents**: [docs/frontend/PRD.md](./PRD.md) | [docs/frontend/REQUIREMENTS.md](./REQUIREMENTS.md) | [docs/frontend/FEATURES.md](./FEATURES.md)  
 
 ---
 

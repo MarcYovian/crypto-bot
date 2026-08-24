@@ -6,8 +6,8 @@ Membangun `TradeRepository` khusus untuk entitas inti posisi perdagangan (`Trade
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[MODIFY]` [`backend/src/repository/trade_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trade_repository.py) *(Model: Trade)*
-* `[NEW]` [`backend/tests/repository/test_trade_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_trade_repository.py)
+* `[MODIFY]` [`backend/src/repository/trade_repository.py`](../backend/src/repository/trade_repository.py) *(Model: Trade)*
+* `[NEW]` [`backend/tests/repository/test_trade_repository.py`](../backend/tests/repository/test_trade_repository.py)
 
 ---
 

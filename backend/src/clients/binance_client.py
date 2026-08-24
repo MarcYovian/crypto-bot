@@ -115,27 +115,40 @@ class BinanceRestClient:
             for symbol, market in self.client.markets.items():
                 # Filter active USDT linear futures contracts
                 if market.get("active") and market.get("linear") and market.get("quote") == "USDT":
-                    precision = market.get("precision", {})
-                    limits = market.get("limits", {})
-                    
-                    price_precision = precision.get("price")
-                    qty_precision = precision.get("amount")
-                    
-                    tick_size = limits.get("price", {}).get("min")
-                    step_size = limits.get("amount", {}).get("min")
-                    min_qty = limits.get("amount", {}).get("min")
-                    min_notional = limits.get("cost", {}).get("min")
+                    info = market.get("info", {})
+                    filters = {f.get("filterType"): f for f in info.get("filters", [])}
+
+                    price_filter = filters.get("PRICE_FILTER", {})
+                    lot_filter = filters.get("LOT_SIZE", {})
+                    min_notional_filter = filters.get("MIN_NOTIONAL", {})
+
+                    tick_size_str = price_filter.get("tickSize") or str(market.get("precision", {}).get("price", "0.01"))
+                    step_size_str = lot_filter.get("stepSize") or str(market.get("precision", {}).get("amount", "0.001"))
+                    min_qty_str = lot_filter.get("minQty") or step_size_str
+                    min_notional_str = min_notional_filter.get("notional") or str(market.get("limits", {}).get("cost", {}).get("min", "5.0"))
+
+                    tick_dec = Decimal(str(tick_size_str)) if tick_size_str and Decimal(str(tick_size_str)) > 0 else Decimal("0.01")
+                    step_dec = Decimal(str(step_size_str)) if step_size_str and Decimal(str(step_size_str)) > 0 else Decimal("0.001")
+                    min_qty_dec = Decimal(str(min_qty_str)) if min_qty_str and Decimal(str(min_qty_str)) > 0 else step_dec
+                    min_notional_dec = Decimal(str(min_notional_str)) if min_notional_str and Decimal(str(min_notional_str)) > 0 else Decimal("5.0")
+
+                    # Calculate decimal places safely
+                    raw_price_prec = info.get("pricePrecision")
+                    price_precision = int(raw_price_prec) if raw_price_prec is not None else abs(tick_dec.normalize().as_tuple().exponent)
+
+                    raw_qty_prec = info.get("quantityPrecision")
+                    qty_precision = int(raw_qty_prec) if raw_qty_prec is not None else abs(step_dec.normalize().as_tuple().exponent)
 
                     results.append({
                         "symbol": market.get("id", symbol.replace("/", "").replace(":USDT", "")),
                         "base_asset": market.get("base"),
                         "quote_asset": market.get("quote"),
-                        "price_precision": int(price_precision) if price_precision is not None else 2,
-                        "qty_precision": int(qty_precision) if qty_precision is not None else 3,
-                        "tick_size": Decimal(str(tick_size)) if tick_size is not None else Decimal("0.01"),
-                        "step_size": Decimal(str(step_size)) if step_size is not None else Decimal("0.001"),
-                        "min_qty": Decimal(str(min_qty)) if min_qty is not None else Decimal("0.001"),
-                        "min_notional": Decimal(str(min_notional)) if min_notional is not None else Decimal("5.0"),
+                        "price_precision": price_precision,
+                        "qty_precision": qty_precision,
+                        "tick_size": tick_dec,
+                        "step_size": step_dec,
+                        "min_qty": min_qty_dec,
+                        "min_notional": min_notional_dec,
                         "is_active": True,
                     })
 
@@ -165,14 +178,17 @@ class BinanceRestClient:
                 raw_data = [raw_data]
 
             results: List[Dict[str, Any]] = []
+            max_safe_cap = Decimal("9999999999")  # Prevent NUMERIC(18, 8) overflow on infinity caps
             for item in raw_data:
                 sym = item.get("symbol", "").replace("/", "").replace(":USDT", "").upper()
                 brackets_parsed = []
                 for b in item.get("brackets", []):
+                    raw_cap = Decimal(str(b.get("notionalCap", 0)))
+                    capped_val = min(raw_cap, max_safe_cap)
                     brackets_parsed.append({
                         "bracket": int(b.get("bracket", 1)),
                         "initial_leverage": int(b.get("initialLeverage", 20)),
-                        "notional_cap": Decimal(str(b.get("notionalCap", 0))),
+                        "notional_cap": capped_val,
                         "notional_floor": Decimal(str(b.get("notionalFloor", 0))),
                         "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio", "0.01"))),
                         "cum": Decimal(str(b.get("cum", "0"))),

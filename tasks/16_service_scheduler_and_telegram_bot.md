@@ -8,9 +8,9 @@ Membangun dan memodernisasi **Layanan Pemeliharaan Otomatis Terjadwal (7 Backgro
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[MODIFY]` [`backend/src/services/scheduler_service.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/scheduler_service.py) *(SchedulerService - 7 Background Jobs)*
-* `[MODIFY]` [`backend/src/services/telegram_service.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/services/telegram_service.py) *(TelegramService - 12 Commands & Interactive Handlers)*
-* `[NEW]` [`backend/tests/services/test_scheduler_telegram_services.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/services/test_scheduler_telegram_services.py)
+* `[MODIFY]` [`backend/src/services/scheduler_service.py`](../backend/src/services/scheduler_service.py) *(SchedulerService - 7 Background Jobs)*
+* `[MODIFY]` [`backend/src/services/telegram_service.py`](../backend/src/services/telegram_service.py) *(TelegramService - 12 Commands & Interactive Handlers)*
+* `[NEW]` [`backend/tests/services/test_scheduler_telegram_services.py`](../backend/tests/services/test_scheduler_telegram_services.py)
 
 ---
 

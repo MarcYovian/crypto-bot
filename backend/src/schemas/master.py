@@ -350,6 +350,16 @@ class WatchlistToggleRequest(BaseSchema):
         return v.strip().upper()
 
 
+class LeverageBracketDTO(BaseSchema):
+    """Tier bracket information for frontend display."""
+    bracket: int = Field(..., description="Tier bracket number")
+    initial_leverage: int = Field(..., description="Max allowable leverage for this bracket")
+    notional_cap: float = Field(..., description="Max notional value in USDT")
+    notional_floor: float = Field(default=0.0, description="Min notional value in USDT")
+    maint_margin_ratio: float = Field(..., description="Maintenance margin ratio (MMR)")
+    cum: float = Field(default=0.0, description="Cumulative deduction factor")
+
+
 class InstrumentDTO(BaseSchema):
     """Schema representing Binance Futures instrument specification and precision."""
     symbol: str = Field(..., description="Trading pair symbol")
@@ -361,6 +371,7 @@ class InstrumentDTO(BaseSchema):
     step_size: float = Field(..., description="Minimum quantity step")
     min_notional: float = Field(..., description="Minimum order notional value")
     max_leverage: int = Field(default=125, description="Maximum leverage supported")
+    brackets: Optional[List[LeverageBracketDTO]] = Field(default=None, description="Leverage and notional brackets")
 
 
 class SyncInstrumentsResponseDTO(BaseSchema):

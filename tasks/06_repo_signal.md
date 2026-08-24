@@ -6,8 +6,8 @@ Membangun `SignalRepository` khusus untuk model `TradingSignal` (`trading_signal
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[MODIFY]` [`backend/src/repository/signal_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/signal_repository.py)
-* `[NEW]` [`backend/tests/repository/test_signal_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_signal_repository.py)
+* `[MODIFY]` [`backend/src/repository/signal_repository.py`](../backend/src/repository/signal_repository.py)
+* `[NEW]` [`backend/tests/repository/test_signal_repository.py`](../backend/tests/repository/test_signal_repository.py)
 
 ---
 

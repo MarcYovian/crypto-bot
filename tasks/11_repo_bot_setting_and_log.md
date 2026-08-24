@@ -6,10 +6,10 @@ Membangun repository terpisah untuk model **Konfigurasi Global Dinamis** (`BotSe
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/bot_setting_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/bot_setting_repository.py) *(Model: BotSetting)*
-* `[NEW]` [`backend/src/repository/bot_log_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/bot_log_repository.py) *(Model: BotLog)*
-* `[MODIFY]` [`backend/src/repository/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/__init__.py) *(Centralized Export)*
-* `[NEW]` [`backend/tests/repository/test_system_repositories.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_system_repositories.py)
+* `[NEW]` [`backend/src/repository/bot_setting_repository.py`](../backend/src/repository/bot_setting_repository.py) *(Model: BotSetting)*
+* `[NEW]` [`backend/src/repository/bot_log_repository.py`](../backend/src/repository/bot_log_repository.py) *(Model: BotLog)*
+* `[MODIFY]` [`backend/src/repository/__init__.py`](../backend/src/repository/__init__.py) *(Centralized Export)*
+* `[NEW]` [`backend/tests/repository/test_system_repositories.py`](../backend/tests/repository/test_system_repositories.py)
 
 ---
 

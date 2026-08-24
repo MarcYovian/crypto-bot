@@ -10,12 +10,15 @@ from src.schemas.master import (
     InstrumentCreate,
     ExchangeCreate,
     InstrumentDTO,
+    LeverageBracketDTO,
     SyncInstrumentsResponseDTO,
 )
 from src.repository.instrument_repository import InstrumentRepository
 from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
 from src.repository.exchange_repository import ExchangeRepository
 from src.repository.watchlist_repository import WatchlistRepository
+from src.repository.trading_credential_repository import TradingCredentialRepository
+from src.repository.trading_account_repository import TradingAccountRepository
 from src.clients.binance_client import BinanceRestClient
 
 logger = logging.getLogger(__name__)
@@ -30,13 +33,39 @@ class InstrumentService:
         exchange_repo: Optional[ExchangeRepository] = None,
         watchlist_repo: Optional[WatchlistRepository] = None,
         bracket_repo: Optional[InstrumentLeverageBracketRepository] = None,
+        credential_repo: Optional[TradingCredentialRepository] = None,
+        account_repo: Optional[TradingAccountRepository] = None,
         binance_client: Optional[BinanceRestClient] = None,
     ) -> None:
         self.instrument_repo = instrument_repo
         self.exchange_repo = exchange_repo
         self.watchlist_repo = watchlist_repo
         self.bracket_repo = bracket_repo
+        self.credential_repo = credential_repo
+        self.account_repo = account_repo
         self.binance_client = binance_client
+
+    async def _ensure_authenticated_client(self) -> None:
+        """Dynamically configure Binance client with active credentials for authenticated endpoints."""
+        if not self.binance_client:
+            self.binance_client = BinanceRestClient()
+
+        if (not self.binance_client.api_key or not self.binance_client.secret_key) and self.credential_repo:
+            try:
+                active_cred = await self.credential_repo.get_active_credential(account_id=1)
+                if active_cred and active_cred.encrypted_api_key:
+                    is_testnet = True
+                    if self.account_repo:
+                        acc = await self.account_repo.get(active_cred.account_id)
+                        if acc and acc.environment:
+                            is_testnet = acc.environment.upper() == "TESTNET"
+                    self.binance_client.reconfigure(
+                        api_key=active_cred.encrypted_api_key,
+                        secret_key=active_cred.encrypted_secret_key,
+                        testnet=is_testnet,
+                    )
+            except Exception as e:
+                logger.warning(f"Could not auto-configure credentials for Binance client: {e}")
 
     async def _ensure_exchange_id(self, exchange_id: Optional[int] = None) -> int:
         """Resolve or provision the default Binance exchange entity ID."""
@@ -59,18 +88,19 @@ class InstrumentService:
         """Fetch instrument from database, or dynamically fetch authentic specifications from Binance if not yet stored.
         
         Args:
-            symbol: Trading pair symbol (e.g. "AAVEUSDT", "BTCUSDT").
-            exchange_id: Optional exchange ID filter.
+            symbol: Trading pair symbol, e.g. "BTCUSDT".
+            exchange_id: Optional exchange FK.
             
         Returns:
-            The resolved Instrument instance with verified precision filters, or None if invalid on Binance.
+            Resolved Instrument instance or None if non-existent on exchange.
         """
         clean_sym = symbol.strip().upper().replace("/", "").replace(":USDT", "")
         resolved_ex_id = await self._ensure_exchange_id(exchange_id)
 
-        # 1. Check local database
+        # 1. Look up existing in DB
         inst = await self.instrument_repo.get_by_symbol(clean_sym, exchange_id=resolved_ex_id)
         if inst:
+            # Re-enable in watchlist if disabled
             if self.watchlist_repo:
                 await self.watchlist_repo.set_symbol_enabled(inst.id, True)
 
@@ -79,6 +109,7 @@ class InstrumentService:
                 existing_brackets = await self.bracket_repo.get_brackets_by_instrument(inst.id)
                 if not existing_brackets:
                     try:
+                        await self._ensure_authenticated_client()
                         b_data = await self.binance_client.fetch_leverage_brackets(clean_sym)
                         if b_data:
                             await self.bracket_repo.bulk_upsert_brackets(inst.id, b_data[0].get("brackets", []))
@@ -123,6 +154,7 @@ class InstrumentService:
                     # Fetch and save leverage brackets for the new instrument
                     if self.bracket_repo:
                         try:
+                            await self._ensure_authenticated_client()
                             b_data = await self.binance_client.fetch_leverage_brackets(clean_sym)
                             if b_data:
                                 await self.bracket_repo.bulk_upsert_brackets(inst.id, b_data[0].get("brackets", []))
@@ -154,8 +186,20 @@ class InstrumentService:
         result: List[InstrumentDTO] = []
         for inst in instruments:
             max_lev = 125
+            brackets_dto: List[LeverageBracketDTO] = []
             if inst.leverage_brackets:
                 max_lev = max(b.initial_leverage for b in inst.leverage_brackets)
+                for b in inst.leverage_brackets:
+                    brackets_dto.append(
+                        LeverageBracketDTO(
+                            bracket=b.bracket,
+                            initial_leverage=b.initial_leverage,
+                            notional_cap=float(b.notional_cap),
+                            notional_floor=float(b.notional_floor),
+                            maint_margin_ratio=float(b.maint_margin_ratio),
+                            cum=float(b.cum),
+                        )
+                    )
 
             result.append(
                 InstrumentDTO(
@@ -168,6 +212,7 @@ class InstrumentService:
                     step_size=float(inst.step_size),
                     min_notional=float(inst.min_notional),
                     max_leverage=max_lev,
+                    brackets=brackets_dto if brackets_dto else None,
                 )
             )
 
@@ -183,6 +228,7 @@ class InstrumentService:
             return 0
 
         resolved_ex_id = await self._ensure_exchange_id(exchange_id)
+        await self._ensure_authenticated_client()
         try:
             metadata_list = await self.binance_client.fetch_instruments_metadata()
             if not metadata_list:

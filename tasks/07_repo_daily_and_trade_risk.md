@@ -6,9 +6,9 @@ Membangun repository terpisah untuk model **Snapshot Risiko Harian** (`DailyRisk
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/daily_risk_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/daily_risk_repository.py) *(Model: DailyRiskConfig)*
-* `[NEW]` [`backend/src/repository/trade_risk_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trade_risk_repository.py) *(Model: TradeRisk)*
-* `[NEW]` [`backend/tests/repository/test_risk_repositories.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_risk_repositories.py)
+* `[NEW]` [`backend/src/repository/daily_risk_repository.py`](../backend/src/repository/daily_risk_repository.py) *(Model: DailyRiskConfig)*
+* `[NEW]` [`backend/src/repository/trade_risk_repository.py`](../backend/src/repository/trade_risk_repository.py) *(Model: TradeRisk)*
+* `[NEW]` [`backend/tests/repository/test_risk_repositories.py`](../backend/tests/repository/test_risk_repositories.py)
 
 ---
 

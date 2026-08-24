@@ -6,9 +6,9 @@ Membangun repository terpisah untuk model **Pesanan Bursa** (`Order` / `orders` 
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/order_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/order_repository.py) *(Model: Order)*
-* `[NEW]` [`backend/src/repository/execution_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/execution_repository.py) *(Model: Execution)*
-* `[NEW]` [`backend/tests/repository/test_order_execution_repositories.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_order_execution_repositories.py)
+* `[NEW]` [`backend/src/repository/order_repository.py`](../backend/src/repository/order_repository.py) *(Model: Order)*
+* `[NEW]` [`backend/src/repository/execution_repository.py`](../backend/src/repository/execution_repository.py) *(Model: Execution)*
+* `[NEW]` [`backend/tests/repository/test_order_execution_repositories.py`](../backend/tests/repository/test_order_execution_repositories.py)
 
 ---
 

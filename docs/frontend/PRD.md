@@ -3,7 +3,7 @@
 **Version**: 2.0.0  
 **Status**: Approved / In Development  
 **Target Platform**: Web (Desktop-First, Tablet & Mobile Responsive)  
-**Backend API**: Fast-API REST & WebSocket v2.0.0 ([docs/openapi.yaml](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/openapi.yaml))  
+**Backend API**: Fast-API REST & WebSocket v2.0.0 ([docs/openapi.yaml](../openapi.yaml))  
 
 ---
 
@@ -368,7 +368,7 @@ Fitur-fitur berikut **tidak termasuk** dalam ruang lingkup pengembangan rilis V2
 
 ## 12. Appendix: API Endpoint & Event Mapping Reference
 
-Tabel pemetaan seluruh komponen UI frontend terhadap endpoint backend [docs/openapi.yaml](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/openapi.yaml):
+Tabel pemetaan seluruh komponen UI frontend terhadap endpoint backend [docs/openapi.yaml](../openapi.yaml):
 
 | Modul UI Dashboard | HTTP Method | Endpoint REST API | WebSocket Event Trigger |
 | :--- | :---: | :--- | :--- |

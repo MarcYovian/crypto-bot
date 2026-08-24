@@ -68,9 +68,11 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
             stmt = stmt.join(Trade, TradeSummary.trade_id == Trade.id).where(Trade.account_id == account_id)
 
         if start_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at >= start_date)
+            clean_start = start_date.replace(tzinfo=None) if getattr(start_date, "tzinfo", None) else start_date
+            stmt = stmt.where(TradeSummary.closed_at >= clean_start)
         if end_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at <= end_date)
+            clean_end = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
+            stmt = stmt.where(TradeSummary.closed_at <= clean_end)
 
         result = await self.session.execute(stmt)
         row = result.mappings().one()
@@ -171,9 +173,11 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
             stmt = stmt.join(Trade, TradeSummary.trade_id == Trade.id).where(Trade.account_id == account_id)
 
         if start_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at >= start_date)
+            clean_start = start_date.replace(tzinfo=None) if getattr(start_date, "tzinfo", None) else start_date
+            stmt = stmt.where(TradeSummary.closed_at >= clean_start)
         if end_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at <= end_date)
+            clean_end = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
+            stmt = stmt.where(TradeSummary.closed_at <= clean_end)
 
         stmt = stmt.group_by(func.date(TradeSummary.closed_at))
 

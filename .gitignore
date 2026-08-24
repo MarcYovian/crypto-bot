@@ -45,6 +45,11 @@ dist/
 build/
 *.egg-info/
 
+# === Node & Frontend ===
+node_modules/
+frontend/dist/
+.eslintcache
+
 # === Testing, Linting & Coverage ===
 .coverage
 .coverage.*
@@ -56,3 +61,4 @@ backend/cover_report/
 htmlcov/
 coverage.xml
 *.cover
+

@@ -1,6 +1,6 @@
 # Dokumentasi API Specification (SMC CryptoBot Dashboard)
 
-Spesifikasi resmi REST & WebSocket API untuk antarmuka **Web Dashboard UI Crypto Trading Bot**. Dokumen OpenAPI 3.1.0 Swagger lengkap tersimpan di [`docs/openapi.yaml`](file:///home/rodex/Documents/cell/projects/crypto-bot/docs/openapi.yaml).
+Spesifikasi resmi REST & WebSocket API untuk antarmuka **Web Dashboard UI Crypto Trading Bot**. Dokumen OpenAPI 3.1.0 Swagger lengkap tersimpan di [`docs/openapi.yaml`](./openapi.yaml).
 
 ---
 

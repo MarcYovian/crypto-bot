@@ -6,9 +6,9 @@ Membangun repository terpisah untuk model **Audit Timeline Perdagangan** (`Trade
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/trade_event_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trade_event_repository.py) *(Model: TradeEvent)*
-* `[NEW]` [`backend/src/repository/trade_summary_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trade_summary_repository.py) *(Model: TradeSummary)*
-* `[NEW]` [`backend/tests/repository/test_event_summary_repositories.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_event_summary_repositories.py)
+* `[NEW]` [`backend/src/repository/trade_event_repository.py`](../backend/src/repository/trade_event_repository.py) *(Model: TradeEvent)*
+* `[NEW]` [`backend/src/repository/trade_summary_repository.py`](../backend/src/repository/trade_summary_repository.py) *(Model: TradeSummary)*
+* `[NEW]` [`backend/tests/repository/test_event_summary_repositories.py`](../backend/tests/repository/test_event_summary_repositories.py)
 
 ---
 

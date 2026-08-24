@@ -490,12 +490,14 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
         )
 
         if start_date is not None:
+            clean_start = start_date.replace(tzinfo=None) if getattr(start_date, "tzinfo", None) else start_date
             stmt = stmt.where(
-                (Trade.closed_at >= start_date) | ((Trade.closed_at.is_(None)) & (Trade.created_at >= start_date))
+                (Trade.closed_at >= clean_start) | ((Trade.closed_at.is_(None)) & (Trade.created_at >= clean_start))
             )
         if end_date is not None:
+            clean_end = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
             stmt = stmt.where(
-                (Trade.closed_at <= end_date) | ((Trade.closed_at.is_(None)) & (Trade.created_at <= end_date))
+                (Trade.closed_at <= clean_end) | ((Trade.closed_at.is_(None)) & (Trade.created_at <= clean_end))
             )
 
         result = await self.session.execute(stmt)

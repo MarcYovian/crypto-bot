@@ -546,7 +546,7 @@ Log aplikasi yang tersimpan di database.
 1. **Composite B-Tree Indexes:**
    * Ditambahkan pada tabel `trades`, `orders`, `trading_signals`, `executions`, `trade_events`, dan `bot_logs` untuk memastikan query filtering realtime (misal: WebSocket order status updates, active positions query, cleanup cron, deduplikasi sinyal telegram) berjalan dalam kecepatan *sub-millisecond*.
 2. **PostgreSQL Async Connection Pool Tuning:**
-   * Diimplementasikan pada [`backend/src/database/connection.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/connection.py) dengan `pool_size=20`, `max_overflow=10`, `pool_pre_ping=True`, dan `pool_recycle=3600`.
+   * Diimplementasikan pada [`backend/src/database/connection.py`](../../backend/src/database/connection.py) dengan `pool_size=20`, `max_overflow=10`, `pool_pre_ping=True`, dan `pool_recycle=3600`.
 3. **Database Target:**
    * Seluruh migrasi skema dikelola melalui Alembic dan langsung diaplikasikan ke container **PostgreSQL Docker** (`crypto_bot_postgres`).
 
@@ -556,22 +556,22 @@ Log aplikasi yang tersimpan di database.
 
 Seluruh model ORM SQLAlchemy Async 2.0 terimplementasi secara modular pada direktori `backend/src/database/models/`:
 
-* [`exchange.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/exchange.py) - Model `Exchange`
-* [`trading_accounts.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trading_accounts.py) - Model `TradingAccount`
-* [`trading_credentials.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trading_credentials.py) - Model `TradingCredential`
-* [`instruments.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/instruments.py) - Model `Instrument`
-* [`strategies.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/strategies.py) - Model `Strategy`
-* [`signal_providers.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/signal_providers.py) - Model `SignalProvider`
-* [`risk_profiles.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/risk_profiles.py) - Model `RiskProfile`
-* [`daily_risk_configs.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/daily_risk_configs.py) - Model `DailyRiskConfig`
-* [`trading_signals.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trading_signals.py) - Model `TradingSignal`
-* [`trades.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trades.py) - Model `Trade`
-* [`trade_risks.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trade_risks.py) - Model `TradeRisk`
-* [`orders.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/orders.py) - Model `Order`
-* [`executions.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/executions.py) - Model `Execution`
-* [`trade_events.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trade_events.py) - Model `TradeEvent`
-* [`trade_summaries.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/trade_summaries.py) - Model `TradeSummary`
-* [`watchlists.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/watchlists.py) - Model `Watchlist`
-* [`bot_settings.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/bot_settings.py) - Model `BotSetting`
-* [`bot_logs.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/database/models/bot_logs.py) - Model `BotLog`
+* [`exchange.py`](../../backend/src/database/models/exchange.py) - Model `Exchange`
+* [`trading_accounts.py`](../../backend/src/database/models/trading_accounts.py) - Model `TradingAccount`
+* [`trading_credentials.py`](../../backend/src/database/models/trading_credentials.py) - Model `TradingCredential`
+* [`instruments.py`](../../backend/src/database/models/instruments.py) - Model `Instrument`
+* [`strategies.py`](../../backend/src/database/models/strategies.py) - Model `Strategy`
+* [`signal_providers.py`](../../backend/src/database/models/signal_providers.py) - Model `SignalProvider`
+* [`risk_profiles.py`](../../backend/src/database/models/risk_profiles.py) - Model `RiskProfile`
+* [`daily_risk_configs.py`](../../backend/src/database/models/daily_risk_configs.py) - Model `DailyRiskConfig`
+* [`trading_signals.py`](../../backend/src/database/models/trading_signals.py) - Model `TradingSignal`
+* [`trades.py`](../../backend/src/database/models/trades.py) - Model `Trade`
+* [`trade_risks.py`](../../backend/src/database/models/trade_risks.py) - Model `TradeRisk`
+* [`orders.py`](../../backend/src/database/models/orders.py) - Model `Order`
+* [`executions.py`](../../backend/src/database/models/executions.py) - Model `Execution`
+* [`trade_events.py`](../../backend/src/database/models/trade_events.py) - Model `TradeEvent`
+* [`trade_summaries.py`](../../backend/src/database/models/trade_summaries.py) - Model `TradeSummary`
+* [`watchlists.py`](../../backend/src/database/models/watchlists.py) - Model `Watchlist`
+* [`bot_settings.py`](../../backend/src/database/models/bot_settings.py) - Model `BotSetting`
+* [`bot_logs.py`](../../backend/src/database/models/bot_logs.py) - Model `BotLog`
 

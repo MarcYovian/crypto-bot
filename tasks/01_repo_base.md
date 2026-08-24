@@ -6,8 +6,8 @@ Membangun generic abstract base repository `BaseRepository[ModelType, CreateSche
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/base.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/base.py)
-* `[NEW]` [`backend/tests/repository/test_base_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_base_repository.py)
+* `[NEW]` [`backend/src/repository/base.py`](../backend/src/repository/base.py)
+* `[NEW]` [`backend/tests/repository/test_base_repository.py`](../backend/tests/repository/test_base_repository.py)
 
 ---
 
