@@ -30,6 +30,7 @@ from src.domain.exceptions.system import (
 from src.domain.exceptions.exchange import ExchangeAuthError
 from src.clients.binance_client import BinanceRestClient
 from src.utils.cache import in_memory_cache
+from src.api.websocket_manager import ws_manager
 
 
 class BotService:
@@ -85,6 +86,11 @@ class BotService:
         await in_memory_cache.invalidate("settings")
         await in_memory_cache.invalidate("bot:status")
 
+        await ws_manager.broadcast(
+            "BOT_STATUS_CHANGED",
+            {"is_paused": True, "trading_status": "PAUSED", "action": "PAUSE"},
+        )
+
         return GenericActionResponse(
             success=True,
             message="Trading bot paused successfully. Incoming signals will be rejected.",
@@ -106,6 +112,11 @@ class BotService:
 
         await in_memory_cache.invalidate("settings")
         await in_memory_cache.invalidate("bot:status")
+
+        await ws_manager.broadcast(
+            "BOT_STATUS_CHANGED",
+            {"is_paused": False, "trading_status": "ACTIVE", "action": "RESUME"},
+        )
 
         return GenericActionResponse(
             success=True,
@@ -151,6 +162,19 @@ class BotService:
         await in_memory_cache.invalidate("analytics")
         await in_memory_cache.invalidate("signals")
         await in_memory_cache.invalidate("bot:status")
+
+        await ws_manager.broadcast(
+            "CIRCUIT_BREAKER_TRIGGERED",
+            {
+                "action": "PANIC_CLOSE",
+                "closed_trades_count": closed_trades_count,
+                "canceled_orders_count": canceled_orders_count,
+            },
+        )
+        await ws_manager.broadcast(
+            "BOT_STATUS_CHANGED",
+            {"is_paused": True, "trading_status": "PAUSED", "action": "PANIC_CLOSE"},
+        )
 
         return PanicCloseResponseDTO(
             success=True,

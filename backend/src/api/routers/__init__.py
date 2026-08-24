@@ -13,6 +13,7 @@ from src.api.routers.bot import router as bot_router
 from src.api.routers.settings import router as settings_router
 from src.api.routers.logs import router as logs_router
 from src.api.routers.reports import router as reports_router
+from src.api.routers.websocket import router as websocket_router
 
 __all__ = [
     "auth_router",
@@ -28,7 +29,9 @@ __all__ = [
     "settings_router",
     "logs_router",
     "reports_router",
+    "websocket_router",
 ]
+
 
 
 

@@ -39,6 +39,7 @@ from src.services.risk_calculator import RiskCalculatorService
 from src.services.precision_filter import PrecisionFilterService
 from src.clients.binance_client import BinanceRestClient
 from src.clients.telegram_client import TelegramNotifierClient
+from src.api.websocket_manager import ws_manager
 
 
 class TradeService:
@@ -341,6 +342,19 @@ class TradeService:
                 )
             except Exception:
                 pass
+
+        await ws_manager.broadcast(
+            "TRADE_OPENED",
+            {
+                "trade_id": trade.id,
+                "symbol": signal_dto.symbol,
+                "side": signal_dto.side,
+                "entry_price": float(signal_dto.avg_entry_price),
+                "position_size": float(risk_res.position_size),
+                "leverage": effective_leverage,
+                "sl_price": float(signal_dto.sl_price),
+            },
+        )
 
         return TradeExecutionResultDTO(
             trade_id=trade.id,

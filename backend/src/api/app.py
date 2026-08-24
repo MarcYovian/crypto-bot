@@ -18,6 +18,7 @@ from src.api.routers.bot import router as bot_router
 from src.api.routers.settings import router as settings_router
 from src.api.routers.logs import router as logs_router
 from src.api.routers.reports import router as reports_router
+from src.api.routers.websocket import router as websocket_router
 
 
 def create_app() -> FastAPI:
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(logs_router)
     app.include_router(reports_router)
+    app.include_router(websocket_router)
 
     # Healthcheck Route
     @app.get("/health", tags=["Health"], summary="API Service Health Check")
