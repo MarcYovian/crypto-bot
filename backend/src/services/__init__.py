@@ -14,6 +14,7 @@ from src.services.signal_service import SignalService
 from src.services.watchlist_service import WatchlistService
 from src.services.provider_service import ProviderService
 from src.services.strategy_service import StrategyService
+from src.services.bot_service import BotService
 
 __all__ = [
     "PrecisionFilterService",
@@ -30,6 +31,7 @@ __all__ = [
     "WatchlistService",
     "ProviderService",
     "StrategyService",
+    "BotService",
 ]
 
 

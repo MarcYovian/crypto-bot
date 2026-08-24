@@ -9,6 +9,8 @@ from src.api.routers.instruments import router as instruments_router
 from src.api.routers.providers import router as providers_router
 from src.api.routers.strategies import router as strategies_router
 from src.api.routers.calculator import router as calculator_router
+from src.api.routers.bot import router as bot_router
+from src.api.routers.settings import router as settings_router
 
 __all__ = [
     "auth_router",
@@ -20,6 +22,8 @@ __all__ = [
     "providers_router",
     "strategies_router",
     "calculator_router",
+    "bot_router",
+    "settings_router",
 ]
 
 

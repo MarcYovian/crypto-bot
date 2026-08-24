@@ -14,6 +14,8 @@ from src.api.routers.instruments import router as instruments_router
 from src.api.routers.providers import router as providers_router
 from src.api.routers.strategies import router as strategies_router
 from src.api.routers.calculator import router as calculator_router
+from src.api.routers.bot import router as bot_router
+from src.api.routers.settings import router as settings_router
 
 
 def create_app() -> FastAPI:
@@ -61,6 +63,8 @@ def create_app() -> FastAPI:
     app.include_router(providers_router)
     app.include_router(strategies_router)
     app.include_router(calculator_router)
+    app.include_router(bot_router)
+    app.include_router(settings_router)
 
     # Healthcheck Route
     @app.get("/health", tags=["Health"], summary="API Service Health Check")

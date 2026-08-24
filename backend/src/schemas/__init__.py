@@ -130,6 +130,14 @@ from src.schemas.system import (
     BotLogBase,
     BotLogCreate,
     BotLogRead,
+    BotStatusDTO,
+    GenericActionResponse,
+    BotSettingsDTO,
+    BotSettingsUpdateRequest,
+    TradingCredentialCreateRequest,
+    PanicCloseRequest,
+    PanicCloseResponseDTO,
+    CredentialSaveResponseDTO,
 )
 
 from src.schemas.user import (
@@ -263,6 +271,14 @@ __all__ = [
     "BotLogBase",
     "BotLogCreate",
     "BotLogRead",
+    "BotStatusDTO",
+    "GenericActionResponse",
+    "BotSettingsDTO",
+    "BotSettingsUpdateRequest",
+    "TradingCredentialCreateRequest",
+    "PanicCloseRequest",
+    "PanicCloseResponseDTO",
+    "CredentialSaveResponseDTO",
     # User & Auth
     "UserDTO",
     "LoginRequest",

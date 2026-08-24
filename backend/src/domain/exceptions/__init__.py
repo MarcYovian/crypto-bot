@@ -50,6 +50,11 @@ from src.domain.exceptions.provider import (
     StrategyNotFoundError,
     InvalidStrategyConfigError,
 )
+from src.domain.exceptions.system import (
+    BotOperationError,
+    PanicConfirmationRequiredError,
+    InvalidSettingsValueError,
+)
 
 __all__ = [
     "DomainError",
@@ -88,4 +93,7 @@ __all__ = [
     "DuplicateProviderError",
     "StrategyNotFoundError",
     "InvalidStrategyConfigError",
+    "BotOperationError",
+    "PanicConfirmationRequiredError",
+    "InvalidSettingsValueError",
 ]

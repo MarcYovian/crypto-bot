@@ -23,6 +23,10 @@ from src.repository.strategy_repository import StrategyRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.repository.exchange_repository import ExchangeRepository
 from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
+from src.repository.bot_setting_repository import BotSettingRepository
+from src.repository.risk_profile_repository import RiskProfileRepository
+from src.repository.trading_credential_repository import TradingCredentialRepository
+from src.repository.trading_account_repository import TradingAccountRepository
 from src.services.auth_service import AuthService
 from src.services.analytics_service import AnalyticsService
 from src.services.trade_service import TradeService
@@ -33,6 +37,7 @@ from src.services.instrument_service import InstrumentService
 from src.services.provider_service import ProviderService
 from src.services.strategy_service import StrategyService
 from src.services.risk_calculator import RiskCalculatorService
+from src.services.bot_service import BotService
 from src.clients.binance_client import BinanceRestClient
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
@@ -163,6 +168,20 @@ def get_risk_calculator_service(session: AsyncSession = Depends(get_db_session))
     return RiskCalculatorService(instrument_repo=InstrumentRepository(session))
 
 
+def get_bot_service(session: AsyncSession = Depends(get_db_session)) -> BotService:
+    """Provide BotService instance configured with necessary database repositories."""
+    return BotService(
+        bot_setting_repo=BotSettingRepository(session),
+        risk_profile_repo=RiskProfileRepository(session),
+        trade_repo=TradeRepository(session),
+        order_repo=OrderRepository(session),
+        credential_repo=TradingCredentialRepository(session),
+        account_repo=TradingAccountRepository(session),
+        exchange_repo=ExchangeRepository(session),
+    )
+
+
+
 
 
 
@@ -228,3 +247,8 @@ async def require_admin_role(current_user: User = Depends(get_current_user)) -> 
             detail="Insufficient permissions. Admin role required.",
         )
     return current_user
+
+
+# Backward-compatible alias
+get_current_admin_user = require_admin_role
+
