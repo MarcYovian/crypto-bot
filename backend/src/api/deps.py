@@ -32,6 +32,7 @@ from src.services.watchlist_service import WatchlistService
 from src.services.instrument_service import InstrumentService
 from src.services.provider_service import ProviderService
 from src.services.strategy_service import StrategyService
+from src.services.risk_calculator import RiskCalculatorService
 from src.clients.binance_client import BinanceRestClient
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
@@ -155,6 +156,12 @@ def get_provider_service(session: AsyncSession = Depends(get_db_session)) -> Pro
 def get_strategy_service(session: AsyncSession = Depends(get_db_session)) -> StrategyService:
     """Provide StrategyService instance bound to the request's database session."""
     return StrategyService(strategy_repo=StrategyRepository(session))
+
+
+def get_risk_calculator_service(session: AsyncSession = Depends(get_db_session)) -> RiskCalculatorService:
+    """Provide RiskCalculatorService instance bound with InstrumentRepository for live simulations."""
+    return RiskCalculatorService(instrument_repo=InstrumentRepository(session))
+
 
 
 

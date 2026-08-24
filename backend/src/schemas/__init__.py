@@ -78,6 +78,8 @@ from src.schemas.risk import (
     TradeRiskCreate,
     TradeRiskRead,
     RiskCalculationResultDTO,
+    RiskSimulationRequest,
+    RiskSimulationResponse,
 )
 
 from src.schemas.trade import (
@@ -217,6 +219,8 @@ __all__ = [
     "TradeRiskCreate",
     "TradeRiskRead",
     "RiskCalculationResultDTO",
+    "RiskSimulationRequest",
+    "RiskSimulationResponse",
     # Trade
     "TradeBase",
     "TradeCreate",

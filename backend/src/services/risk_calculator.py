@@ -7,6 +7,11 @@ from src.domain.exceptions.risk import (
     ZeroStopDistanceError,
     MaxRiskExceededError,
     InsufficientMarginRiskError,
+    InvalidSignalGeometryError,
+)
+from src.schemas.risk import (
+    RiskSimulationRequest,
+    RiskSimulationResponse,
 )
 from src.services.precision_filter import PrecisionFilterService, SymbolInfo
 
@@ -16,6 +21,130 @@ RiskCalculationResult = RiskCalculationResultDTO
 
 class RiskCalculatorService:
     """Service for computing position sizes, margin requirements, and TP lot allocations."""
+
+    def __init__(self, instrument_repo: Optional[Any] = None) -> None:
+        self.instrument_repo = instrument_repo
+
+    async def simulate_risk_position(
+        self,
+        payload: RiskSimulationRequest,
+        instrument_repo: Optional[Any] = None,
+    ) -> RiskSimulationResponse:
+        """Run interactive live risk and position sizing simulation sandbox.
+
+        Args:
+            payload: Simulation inputs (symbol, side, entry, SL, balance, requested leverage, risk %).
+            instrument_repo: Optional InstrumentRepository for looking up authentic step sizes and leverage brackets.
+
+        Returns:
+            RiskSimulationResponse with sizing, margin, effective leverage, and liquidation price.
+
+        Raises:
+            ZeroStopDistanceError: If entry and SL are equal.
+            InvalidSignalGeometryError: If SL is incorrectly placed relative to side (BUY: SL >= Entry, SELL: SL <= Entry).
+            ValueError: If wallet balance is <= 0.
+        """
+        repo = instrument_repo or self.instrument_repo
+
+        symbol = payload.symbol
+        side = payload.side
+        entry_price = Decimal(str(payload.entry_price))
+        sl_price = Decimal(str(payload.sl_price))
+        wallet_balance = Decimal(str(payload.wallet_balance))
+        requested_leverage = payload.requested_leverage
+        risk_percent = Decimal(str(payload.risk_percent))
+
+        if wallet_balance <= Decimal("0"):
+            raise ValueError(f"Wallet balance ({wallet_balance}) must be positive.")
+
+        stop_distance = abs(entry_price - sl_price)
+        if stop_distance <= Decimal("0"):
+            raise ZeroStopDistanceError(
+                f"Invalid stop distance ({stop_distance}): Entry price ({entry_price}) and SL price ({sl_price}) cannot be equal."
+            )
+
+        if side == "BUY" and sl_price >= entry_price:
+            raise InvalidSignalGeometryError(
+                f"Invalid geometry for BUY position: Stop Loss ({sl_price}) must be strictly below Entry Price ({entry_price})."
+            )
+        if side == "SELL" and sl_price <= entry_price:
+            raise InvalidSignalGeometryError(
+                f"Invalid geometry for SELL position: Stop Loss ({sl_price}) must be strictly above Entry Price ({entry_price})."
+            )
+
+        # Defaults
+        step_size = Decimal("0.001")
+        tick_size = Decimal("0.10")
+        min_notional = Decimal("5.0")
+        qty_precision = 3
+        price_precision = 2
+        brackets = None
+
+        if repo:
+            inst = await repo.get_by_symbol(symbol)
+            if inst:
+                step_size = Decimal(str(inst.step_size))
+                tick_size = Decimal(str(inst.tick_size))
+                min_notional = Decimal(str(inst.min_notional))
+                qty_precision = inst.qty_precision
+                price_precision = inst.price_precision
+                brackets = inst.leverage_brackets
+
+        calc_result = self.calculate_position_size(
+            wallet_balance=wallet_balance,
+            risk_percent=risk_percent,
+            entry_price=entry_price,
+            sl_price=sl_price,
+            leverage=requested_leverage,
+            step_size=step_size,
+            tick_size=tick_size,
+            min_notional=min_notional,
+            qty_precision=qty_precision,
+            price_precision=price_precision,
+            brackets=brackets,
+        )
+
+        # Maintenance margin ratio for liquidation calculation
+        mmr = Decimal("0.015")
+        if brackets:
+            notional = calc_result.position_size * entry_price
+            for b in sorted(brackets, key=lambda x: getattr(x, "bracket", 1)):
+                n_floor = Decimal(str(getattr(b, "notional_floor", 0)))
+                n_cap = Decimal(str(getattr(b, "notional_cap", 0)))
+                if n_floor <= notional <= n_cap:
+                    mmr = Decimal(str(getattr(b, "maint_margin_ratio", "0.015")))
+                    break
+
+        eff_lev = Decimal(str(calc_result.leverage))
+        if side == "BUY":
+            estimated_liq = entry_price * (Decimal("1.0") - (Decimal("1.0") / eff_lev) + mmr)
+            liq_safe = estimated_liq < sl_price
+        else:
+            estimated_liq = entry_price * (Decimal("1.0") + (Decimal("1.0") / eff_lev) - mmr)
+            liq_safe = estimated_liq > sl_price
+
+        # Floor at 0 if negative
+        if estimated_liq < Decimal("0"):
+            estimated_liq = Decimal("0")
+
+        projected_loss = calc_result.position_size * stop_distance
+        margin_safe = calc_result.required_margin <= wallet_balance
+        notional_safe = (calc_result.position_size * entry_price) >= min_notional
+        is_safe = bool(liq_safe and margin_safe and notional_safe and calc_result.position_size > Decimal("0"))
+
+        return RiskSimulationResponse(
+            symbol=symbol,
+            side=side,
+            max_allowed_loss_usdt=float(calc_result.risk_amount.quantize(Decimal("0.01"))),
+            calculated_position_size=float(calc_result.position_size),
+            required_margin_usdt=float(calc_result.required_margin.quantize(Decimal("0.01"))),
+            effective_leverage=calc_result.leverage,
+            is_leverage_downscaled=calc_result.is_leverage_downscaled,
+            estimated_liquidation_price=float(estimated_liq.quantize(Decimal("0.01"))),
+            stop_distance_usdt=float(stop_distance.quantize(Decimal("0.01"))),
+            projected_loss_at_sl_usdt=float(projected_loss.quantize(Decimal("0.01"))),
+            is_safe=is_safe,
+        )
 
     @classmethod
     def calculate_position(

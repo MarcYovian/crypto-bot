@@ -28,3 +28,9 @@ class MaxRiskExceededError(RiskCalculationError):
 class InsufficientMarginRiskError(RiskCalculationError):
     """Account free balance is insufficient to cover the required margin for the calculated size."""
     pass
+
+
+class InvalidSignalGeometryError(RiskCalculationError):
+    """Invalid price geometry for trade direction (e.g. SL higher than Entry for BUY)."""
+    pass
+

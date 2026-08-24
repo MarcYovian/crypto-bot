@@ -27,6 +27,7 @@ from src.domain.exceptions.risk import (
     ZeroStopDistanceError,
     MaxRiskExceededError,
     InsufficientMarginRiskError,
+    InvalidSignalGeometryError,
 )
 from src.domain.exceptions.trade import (
     TradeExecutionError,
@@ -71,6 +72,7 @@ __all__ = [
     "ZeroStopDistanceError",
     "MaxRiskExceededError",
     "InsufficientMarginRiskError",
+    "InvalidSignalGeometryError",
     "TradeExecutionError",
     "TradeNotFoundError",
     "InvalidTradeStateError",

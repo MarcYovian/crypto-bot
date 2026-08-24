@@ -8,6 +8,7 @@ from src.api.routers.watchlist import router as watchlist_router
 from src.api.routers.instruments import router as instruments_router
 from src.api.routers.providers import router as providers_router
 from src.api.routers.strategies import router as strategies_router
+from src.api.routers.calculator import router as calculator_router
 
 __all__ = [
     "auth_router",
@@ -18,6 +19,7 @@ __all__ = [
     "instruments_router",
     "providers_router",
     "strategies_router",
+    "calculator_router",
 ]
 
 
