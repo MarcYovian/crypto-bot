@@ -48,3 +48,14 @@ Dokumen ini berisi peta jalan terperinci, pelacak progres, dan rincian seluruh t
 | Task ID | Nama File Task | Target Modul | Deskripsi | Target Verification | Status |
 | :--- | :--- | :--- | :--- | :--- | :---: |
 | **17** | [`17_app_wiring_and_docker_verification.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/17_app_wiring_and_docker_verification.md) | `main.py`<br>`docker-compose.yml` | Dependency injection, graceful shutdown, Docker E2E | `tests/test_e2e_integration.py` + Docker check | ✅ Completed |
+
+---
+
+### 🌐 PHASE 5: Web Dashboard REST & WebSocket API
+Lihat roadmap rincian backend API di [`tasks/web_dashboard_api/README.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/web_dashboard_api/README.md).
+
+---
+
+### 💻 PHASE 6: Web Dashboard UI Frontend SPA
+Lihat roadmap rincian frontend UI di [`tasks/frontend/README.md`](file:///home/rodex/Documents/cell/projects/crypto-bot/tasks/frontend/README.md).
+
