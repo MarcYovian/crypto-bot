@@ -47,7 +47,7 @@ jobs:
           if-no-files-found: ignore
 
   # =========================================================================
-  # 2. FRONTEND CI (Node.js 20, ESLint, TypeScript Build, Vitest)
+  # 2. FRONTEND CI (Node.js 24, ESLint, TypeScript Build, Vitest)
   # =========================================================================
   frontend-ci:
     name: Frontend Lint, Build & Tests
@@ -57,10 +57,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
           cache-dependency-path: "frontend/package-lock.json"
 
