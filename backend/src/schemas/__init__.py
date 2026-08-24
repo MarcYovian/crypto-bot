@@ -54,6 +54,10 @@ from src.schemas.signal import (
     TradingSignalUpdate,
     TradingSignalRead,
     SignalConfirmationDTO,
+    SignalItemDTO,
+    PaginatedSignalListDTO,
+    ManualSignalExecutionRequest,
+    TradeExecutionResultResponseDTO,
 )
 
 from src.schemas.risk import (
@@ -181,6 +185,10 @@ __all__ = [
     "TradingSignalUpdate",
     "TradingSignalRead",
     "SignalConfirmationDTO",
+    "SignalItemDTO",
+    "PaginatedSignalListDTO",
+    "ManualSignalExecutionRequest",
+    "TradeExecutionResultResponseDTO",
     # Risk
     "DailyRiskConfigBase",
     "DailyRiskConfigCreate",

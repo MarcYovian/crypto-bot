@@ -17,11 +17,13 @@ from src.repository.daily_risk_repository import DailyRiskRepository
 from src.repository.order_repository import OrderRepository
 from src.repository.execution_repository import ExecutionRepository
 from src.repository.trade_event_repository import TradeEventRepository
+from src.repository.signal_repository import SignalRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.services.auth_service import AuthService
 from src.services.analytics_service import AnalyticsService
 from src.services.trade_service import TradeService
 from src.services.position_manager import PositionManager
+from src.services.signal_service import SignalService
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
 
@@ -85,6 +87,26 @@ def get_position_manager(session: AsyncSession = Depends(get_db_session)) -> Pos
         trade_event_repo=TradeEventRepository(session),
         trade_summary_repo=TradeSummaryRepository(session),
         daily_risk_repo=DailyRiskRepository(session),
+    )
+
+
+def get_signal_service(session: AsyncSession = Depends(get_db_session)) -> SignalService:
+    """Provide SignalService instance bound to the request's database session."""
+    signal_repo = SignalRepository(session)
+    instrument_repo = InstrumentRepository(session)
+    trade_service = TradeService(
+        instrument_repo=instrument_repo,
+        watchlist_repo=WatchlistRepository(session),
+        trade_repo=TradeRepository(session),
+        trade_risk_repo=TradeRiskRepository(session),
+        daily_risk_repo=DailyRiskRepository(session),
+        order_repo=OrderRepository(session),
+        trade_event_repo=TradeEventRepository(session),
+    )
+    return SignalService(
+        signal_repo=signal_repo,
+        trade_service=trade_service,
+        instrument_repo=instrument_repo,
     )
 
 

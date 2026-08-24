@@ -10,6 +10,7 @@ from src.services.telegram_service import TelegramService
 from src.services.instrument_service import InstrumentService
 from src.services.auth_service import AuthService
 from src.services.analytics_service import AnalyticsService
+from src.services.signal_service import SignalService
 
 __all__ = [
     "PrecisionFilterService",
@@ -22,6 +23,7 @@ __all__ = [
     "InstrumentService",
     "AuthService",
     "AnalyticsService",
+    "SignalService",
 ]
 
 
