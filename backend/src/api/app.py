@@ -1,5 +1,6 @@
 """FastAPI application factory and middleware configuration."""
 
+from typing import Optional, Any
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,7 +22,7 @@ from src.api.routers.reports import router as reports_router
 from src.api.routers.websocket import router as websocket_router
 
 
-def create_app() -> FastAPI:
+def create_app(lifespan: Optional[Any] = None) -> FastAPI:
     """Create and configure the FastAPI web application instance."""
     app = FastAPI(
         title="SMC CryptoBot Dashboard API",
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        lifespan=lifespan,
     )
 
     # Configure CORS for frontend dashboard (Next.js / Vite / React)
