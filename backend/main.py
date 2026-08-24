@@ -261,7 +261,29 @@ class ApplicationContainer:
                 self.scheduler.start()
                 logger.info("APScheduler background jobs active (7 maintenance jobs).")
 
-            # 3. Telegram Polling dispatcher
+            # 3. WebSocket listener callback wiring (Binance user data stream)
+            async def on_order_fill_event(fill_dto):
+                async with self.session_maker() as fill_session:
+                    pm = PositionManager(
+                        trade_repo=TradeRepository(fill_session),
+                        order_repo=OrderRepository(fill_session),
+                        execution_repo=ExecutionRepository(fill_session),
+                        trade_event_repo=TradeEventRepository(fill_session),
+                        trade_summary_repo=TradeSummaryRepository(fill_session),
+                        daily_risk_repo=DailyRiskRepository(fill_session),
+                        binance_client=self.binance_client,
+                        telegram_client=self.telegram_client,
+                    )
+                    await pm.handle_order_fill(fill_dto)
+
+            if self.binance_ws and self.binance_ws.api_key:
+                ws_task = asyncio.create_task(
+                    self.binance_ws.watch_orders_stream(callback_coro=on_order_fill_event)
+                )
+                self.tasks.append(ws_task)
+                logger.info("Binance User Data Stream WebSocket listener active.")
+
+            # 4. Telegram Polling dispatcher
             async def on_tg_message(msg: dict):
                 text = msg.get("text", "")
                 chat_id = msg.get("chat", {}).get("id", 1)
