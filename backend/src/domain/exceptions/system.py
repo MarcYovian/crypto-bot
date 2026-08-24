@@ -16,3 +16,14 @@ class PanicConfirmationRequiredError(BotOperationError):
 class InvalidSettingsValueError(BotOperationError):
     """Raised when setting parameters violate logical boundary limits."""
     pass
+
+
+class InvalidDateRangeError(DomainError):
+    """Raised when report date range start_date is after end_date."""
+    pass
+
+
+class InvalidLogLevelError(DomainError):
+    """Raised when an unrecognized logging severity level is requested."""
+    pass
+

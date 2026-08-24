@@ -54,6 +54,8 @@ from src.domain.exceptions.system import (
     BotOperationError,
     PanicConfirmationRequiredError,
     InvalidSettingsValueError,
+    InvalidDateRangeError,
+    InvalidLogLevelError,
 )
 
 __all__ = [
@@ -96,4 +98,6 @@ __all__ = [
     "BotOperationError",
     "PanicConfirmationRequiredError",
     "InvalidSettingsValueError",
+    "InvalidDateRangeError",
+    "InvalidLogLevelError",
 ]

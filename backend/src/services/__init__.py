@@ -15,6 +15,8 @@ from src.services.watchlist_service import WatchlistService
 from src.services.provider_service import ProviderService
 from src.services.strategy_service import StrategyService
 from src.services.bot_service import BotService
+from src.services.log_service import LogService
+from src.services.report_service import ReportService
 
 __all__ = [
     "PrecisionFilterService",
@@ -32,6 +34,9 @@ __all__ = [
     "ProviderService",
     "StrategyService",
     "BotService",
+    "LogService",
+    "ReportService",
 ]
+
 
 

@@ -138,6 +138,7 @@ from src.schemas.system import (
     PanicCloseRequest,
     PanicCloseResponseDTO,
     CredentialSaveResponseDTO,
+    LogEntryDTO,
 )
 
 from src.schemas.user import (
@@ -279,6 +280,7 @@ __all__ = [
     "PanicCloseRequest",
     "PanicCloseResponseDTO",
     "CredentialSaveResponseDTO",
+    "LogEntryDTO",
     # User & Auth
     "UserDTO",
     "LoginRequest",

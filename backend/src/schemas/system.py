@@ -127,3 +127,14 @@ class CredentialSaveResponseDTO(BaseSchema):
     wallet_balance_usdt: float = Field(..., description="Verified live wallet balance in USDT")
     environment: str = Field(..., description="Environment (TESTNET or LIVE)")
 
+
+class LogEntryDTO(BaseSchema):
+    """System audit log entry response DTO."""
+    id: int = Field(..., description="Unique log primary key ID")
+    level: str = Field(..., description="Log severity level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    module: Optional[str] = Field(default=None, description="Originating module/service name")
+    message: str = Field(..., description="Human-readable log message")
+    trace_id: Optional[str] = Field(default=None, description="Correlation identifier for signal/trade tracking")
+    created_at: datetime = Field(..., description="Log creation timestamp in UTC")
+
+

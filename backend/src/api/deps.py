@@ -27,6 +27,7 @@ from src.repository.bot_setting_repository import BotSettingRepository
 from src.repository.risk_profile_repository import RiskProfileRepository
 from src.repository.trading_credential_repository import TradingCredentialRepository
 from src.repository.trading_account_repository import TradingAccountRepository
+from src.repository.bot_log_repository import BotLogRepository
 from src.services.auth_service import AuthService
 from src.services.analytics_service import AnalyticsService
 from src.services.trade_service import TradeService
@@ -38,6 +39,8 @@ from src.services.provider_service import ProviderService
 from src.services.strategy_service import StrategyService
 from src.services.risk_calculator import RiskCalculatorService
 from src.services.bot_service import BotService
+from src.services.log_service import LogService
+from src.services.report_service import ReportService
 from src.clients.binance_client import BinanceRestClient
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
@@ -179,6 +182,21 @@ def get_bot_service(session: AsyncSession = Depends(get_db_session)) -> BotServi
         account_repo=TradingAccountRepository(session),
         exchange_repo=ExchangeRepository(session),
     )
+
+
+def get_log_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> LogService:
+    """Provide LogService instance with BotLogRepository."""
+    return LogService(log_repo=BotLogRepository(session))
+
+
+def get_report_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ReportService:
+    """Provide ReportService instance with TradeRepository."""
+    return ReportService(trade_repo=TradeRepository(session))
+
 
 
 

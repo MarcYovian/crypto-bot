@@ -11,6 +11,8 @@ from src.api.routers.strategies import router as strategies_router
 from src.api.routers.calculator import router as calculator_router
 from src.api.routers.bot import router as bot_router
 from src.api.routers.settings import router as settings_router
+from src.api.routers.logs import router as logs_router
+from src.api.routers.reports import router as reports_router
 
 __all__ = [
     "auth_router",
@@ -24,6 +26,9 @@ __all__ = [
     "calculator_router",
     "bot_router",
     "settings_router",
+    "logs_router",
+    "reports_router",
 ]
+
 
 

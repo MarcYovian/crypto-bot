@@ -463,3 +463,40 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
         trades = list(trades_res.scalars().all())
 
         return total_count, trades
+
+    async def get_closed_trades_for_report(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Trade]:
+        """Fetch all closed trades with eager loaded instrument and summary for reporting.
+
+        Args:
+            start_date: Optional start timestamp filter on closed_at / created_at.
+            end_date: Optional end timestamp filter on closed_at / created_at.
+
+        Returns:
+            List of Trade instances ordered by closed_at descending.
+        """
+        stmt = (
+            select(Trade)
+            .options(
+                selectinload(Trade.instrument),
+                selectinload(Trade.summary),
+                selectinload(Trade.executions),
+            )
+            .where(Trade.status == "CLOSED")
+            .order_by(Trade.closed_at.desc().nullslast(), Trade.id.desc())
+        )
+
+        if start_date is not None:
+            stmt = stmt.where(
+                (Trade.closed_at >= start_date) | ((Trade.closed_at.is_(None)) & (Trade.created_at >= start_date))
+            )
+        if end_date is not None:
+            stmt = stmt.where(
+                (Trade.closed_at <= end_date) | ((Trade.closed_at.is_(None)) & (Trade.created_at <= end_date))
+            )
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
