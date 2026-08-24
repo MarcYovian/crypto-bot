@@ -1,11 +1,17 @@
 """Instrument service for managing trading pair metadata, precision sync, and watchlist orchestration."""
 
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
 from src.database.models import Instrument
-from src.schemas.master import InstrumentCreate, ExchangeCreate
+from src.schemas.master import (
+    InstrumentCreate,
+    ExchangeCreate,
+    InstrumentDTO,
+    SyncInstrumentsResponseDTO,
+)
 from src.repository.instrument_repository import InstrumentRepository
 from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
 from src.repository.exchange_repository import ExchangeRepository
@@ -126,13 +132,46 @@ class InstrumentService:
 
                     if self.watchlist_repo:
                         await self.watchlist_repo.set_symbol_enabled(inst.id, True)
-                    return inst
+
+                    refetched = await self.instrument_repo.get_by_symbol(clean_sym, exchange_id=resolved_ex_id)
+                    return refetched or inst
                 else:
                     logger.warning(f"Symbol {clean_sym} is not a valid active USDT contract on Binance Futures.")
             except Exception as e:
                 logger.error(f"Failed to fetch live instrument specifications from Binance for {clean_sym}: {e}")
 
         return None
+
+    async def list_all_instruments(self, exchange_id: Optional[int] = None) -> List[InstrumentDTO]:
+        """Fetch all active instruments with leverage brackets mapped to InstrumentDTOs.
+
+        Returns:
+            List of InstrumentDTO instances.
+        """
+        resolved_ex_id = await self._ensure_exchange_id(exchange_id)
+        instruments = await self.instrument_repo.get_all_instruments_with_brackets(resolved_ex_id)
+
+        result: List[InstrumentDTO] = []
+        for inst in instruments:
+            max_lev = 125
+            if inst.leverage_brackets:
+                max_lev = max(b.initial_leverage for b in inst.leverage_brackets)
+
+            result.append(
+                InstrumentDTO(
+                    symbol=inst.symbol,
+                    base_asset=inst.base_asset,
+                    quote_asset=inst.quote_asset,
+                    price_precision=inst.price_precision,
+                    qty_precision=inst.qty_precision,
+                    tick_size=float(inst.tick_size),
+                    step_size=float(inst.step_size),
+                    min_notional=float(inst.min_notional),
+                    max_leverage=max_lev,
+                )
+            )
+
+        return result
 
     async def sync_all_instruments(self, exchange_id: Optional[int] = None) -> int:
         """Fetch all active USDT-M contracts from Binance and bulk upsert them into database & watchlist.
@@ -195,3 +234,29 @@ class InstrumentService:
         except Exception as e:
             logger.error(f"Failed to bulk-sync instruments from Binance: {e}")
             return 0
+
+    async def sync_exchange_instruments(self, exchange_id: Optional[int] = None) -> SyncInstrumentsResponseDTO:
+        """Execute on-demand sync of exchange info and leverage brackets.
+
+        Returns:
+            SyncInstrumentsResponseDTO containing counts and timestamp.
+        """
+        synced_count = await self.sync_all_instruments(exchange_id)
+        
+        # Count synced brackets
+        synced_brackets = 0
+        if self.bracket_repo:
+            resolved_ex_id = await self._ensure_exchange_id(exchange_id)
+            all_active = await self.instrument_repo.get_all_active(resolved_ex_id)
+            for item in all_active:
+                brackets = await self.bracket_repo.get_brackets_by_instrument(item.id)
+                if brackets:
+                    synced_brackets += 1
+
+        now_utc = datetime.now(timezone.utc)
+        return SyncInstrumentsResponseDTO(
+            synced_instruments=synced_count,
+            synced_brackets=synced_brackets or synced_count,
+            timestamp=now_utc,
+        )
+

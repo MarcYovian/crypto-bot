@@ -1,5 +1,6 @@
 """Pydantic schemas for master and configuration entities."""
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 from pydantic import Field, field_validator
@@ -326,3 +327,45 @@ class WatchlistRead(WatchlistBase, TimestampMixin):
     """Response schema for Watchlist."""
     id: int
     instrument: Optional[InstrumentRead] = None
+
+
+class WatchlistItemDTO(BaseSchema):
+    """Schema representing an instrument item in the active watchlist."""
+    id: int = Field(..., description="Watchlist entry unique ID")
+    symbol: str = Field(..., description="Trading pair symbol, e.g. BTCUSDT")
+    enabled: bool = Field(..., description="Active trading enabled status")
+    max_leverage: int = Field(default=125, description="Maximum leverage supported")
+    tick_size: float = Field(..., description="Minimum price movement step")
+    min_qty: float = Field(..., description="Minimum lot order quantity")
+
+
+class WatchlistToggleRequest(BaseSchema):
+    """Payload for enabling or disabling a watchlist trading pair."""
+    symbol: str = Field(..., min_length=2, max_length=30, description="Trading pair symbol, e.g. BTCUSDT")
+    enabled: bool = Field(..., description="Target enabled status")
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class InstrumentDTO(BaseSchema):
+    """Schema representing Binance Futures instrument specification and precision."""
+    symbol: str = Field(..., description="Trading pair symbol")
+    base_asset: str = Field(..., description="Base crypto asset, e.g. BTC")
+    quote_asset: str = Field(..., description="Quote asset, e.g. USDT")
+    price_precision: int = Field(..., description="Price decimal precision")
+    qty_precision: int = Field(..., description="Quantity decimal precision")
+    tick_size: float = Field(..., description="Minimum price step")
+    step_size: float = Field(..., description="Minimum quantity step")
+    min_notional: float = Field(..., description="Minimum order notional value")
+    max_leverage: int = Field(default=125, description="Maximum leverage supported")
+
+
+class SyncInstrumentsResponseDTO(BaseSchema):
+    """Response payload after synchronizing instruments from exchange."""
+    synced_instruments: int = Field(..., description="Total synchronized instruments count")
+    synced_brackets: int = Field(..., description="Total synchronized leverage brackets count")
+    timestamp: datetime = Field(..., description="Synchronization timestamp")
+

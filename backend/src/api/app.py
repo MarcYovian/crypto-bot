@@ -9,6 +9,8 @@ from src.api.routers.auth import router as auth_router
 from src.api.routers.analytics import router as analytics_router
 from src.api.routers.trades import router as trades_router
 from src.api.routers.signals import router as signals_router
+from src.api.routers.watchlist import router as watchlist_router
+from src.api.routers.instruments import router as instruments_router
 
 
 def create_app() -> FastAPI:
@@ -51,6 +53,8 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router)
     app.include_router(trades_router)
     app.include_router(signals_router)
+    app.include_router(watchlist_router)
+    app.include_router(instruments_router)
 
     # Healthcheck Route
     @app.get("/health", tags=["Health"], summary="API Service Health Check")

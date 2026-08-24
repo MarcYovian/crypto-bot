@@ -19,11 +19,16 @@ from src.repository.execution_repository import ExecutionRepository
 from src.repository.trade_event_repository import TradeEventRepository
 from src.repository.signal_repository import SignalRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
+from src.repository.exchange_repository import ExchangeRepository
+from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
 from src.services.auth_service import AuthService
 from src.services.analytics_service import AnalyticsService
 from src.services.trade_service import TradeService
 from src.services.position_manager import PositionManager
 from src.services.signal_service import SignalService
+from src.services.watchlist_service import WatchlistService
+from src.services.instrument_service import InstrumentService
+from src.clients.binance_client import BinanceRestClient
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
 
@@ -108,6 +113,35 @@ def get_signal_service(session: AsyncSession = Depends(get_db_session)) -> Signa
         trade_service=trade_service,
         instrument_repo=instrument_repo,
     )
+
+
+def get_instrument_service(session: AsyncSession = Depends(get_db_session)) -> InstrumentService:
+    """Provide InstrumentService instance bound to the request's database session."""
+    return InstrumentService(
+        instrument_repo=InstrumentRepository(session),
+        exchange_repo=ExchangeRepository(session),
+        watchlist_repo=WatchlistRepository(session),
+        bracket_repo=InstrumentLeverageBracketRepository(session),
+        binance_client=BinanceRestClient(),
+    )
+
+
+def get_watchlist_service(session: AsyncSession = Depends(get_db_session)) -> WatchlistService:
+    """Provide WatchlistService instance bound to the request's database session."""
+    inst_repo = InstrumentRepository(session)
+    inst_service = InstrumentService(
+        instrument_repo=inst_repo,
+        exchange_repo=ExchangeRepository(session),
+        watchlist_repo=WatchlistRepository(session),
+        bracket_repo=InstrumentLeverageBracketRepository(session),
+        binance_client=BinanceRestClient(),
+    )
+    return WatchlistService(
+        watchlist_repo=WatchlistRepository(session),
+        instrument_repo=inst_repo,
+        instrument_service=inst_service,
+    )
+
 
 
 async def get_current_user(
