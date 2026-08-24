@@ -134,10 +134,18 @@ class BinanceRestClient:
 
                     # Calculate decimal places safely
                     raw_price_prec = info.get("pricePrecision")
-                    price_precision = int(raw_price_prec) if raw_price_prec is not None else abs(tick_dec.normalize().as_tuple().exponent)
+                    if raw_price_prec is not None:
+                        price_precision = int(raw_price_prec)
+                    else:
+                        price_exp = tick_dec.normalize().as_tuple().exponent
+                        price_precision = abs(price_exp) if isinstance(price_exp, int) else 2
 
                     raw_qty_prec = info.get("quantityPrecision")
-                    qty_precision = int(raw_qty_prec) if raw_qty_prec is not None else abs(step_dec.normalize().as_tuple().exponent)
+                    if raw_qty_prec is not None:
+                        qty_precision = int(raw_qty_prec)
+                    else:
+                        qty_exp = step_dec.normalize().as_tuple().exponent
+                        qty_precision = abs(qty_exp) if isinstance(qty_exp, int) else 3
 
                     results.append({
                         "symbol": market.get("id", symbol.replace("/", "").replace(":USDT", "")),
