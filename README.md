@@ -100,11 +100,6 @@ cp backend/.env.example backend/.env
 
 Sesuaikan variabel di `backend/.env`:
 ```env
-# Binance Futures API Credentials
-BINANCE_API_KEY=your_binance_api_key
-BINANCE_API_SECRET=your_binance_api_secret
-BINANCE_TESTNET=True
-
 # Telegram Bot Notifications
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
@@ -117,6 +112,8 @@ JWT_SECRET_KEY=generate_a_secure_random_key_here
 DEFAULT_ADMIN_USERNAME=admin
 DEFAULT_ADMIN_PASSWORD=AdminPassword123!
 ```
+
+> **Catatan Kredensial Binance**: Kredensial API Key Binance tidak disimpan dalam file `.env` melainkan dienkripsi aman di dalam database (`trading_credentials` table) dan dapat dikonfigurasi / dirotasi secara dinamis melalui Web Dashboard UI (`/settings`) atau wizard Telegram (`/setup_account`).
 
 ---
 
