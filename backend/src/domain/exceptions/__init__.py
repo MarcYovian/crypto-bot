@@ -43,6 +43,12 @@ from src.domain.exceptions.auth import (
     InvalidRefreshTokenError,
     UserNotFoundError,
 )
+from src.domain.exceptions.provider import (
+    ProviderNotFoundError,
+    DuplicateProviderError,
+    StrategyNotFoundError,
+    InvalidStrategyConfigError,
+)
 
 __all__ = [
     "DomainError",
@@ -76,4 +82,8 @@ __all__ = [
     "AccountDisabledError",
     "InvalidRefreshTokenError",
     "UserNotFoundError",
+    "ProviderNotFoundError",
+    "DuplicateProviderError",
+    "StrategyNotFoundError",
+    "InvalidStrategyConfigError",
 ]

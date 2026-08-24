@@ -18,6 +18,8 @@ from src.repository.order_repository import OrderRepository
 from src.repository.execution_repository import ExecutionRepository
 from src.repository.trade_event_repository import TradeEventRepository
 from src.repository.signal_repository import SignalRepository
+from src.repository.signal_provider_repository import SignalProviderRepository
+from src.repository.strategy_repository import StrategyRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.repository.exchange_repository import ExchangeRepository
 from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
@@ -28,6 +30,8 @@ from src.services.position_manager import PositionManager
 from src.services.signal_service import SignalService
 from src.services.watchlist_service import WatchlistService
 from src.services.instrument_service import InstrumentService
+from src.services.provider_service import ProviderService
+from src.services.strategy_service import StrategyService
 from src.clients.binance_client import BinanceRestClient
 from src.utils.security import decode_token
 from src.utils.cache import in_memory_cache, AsyncInMemoryCache
@@ -141,6 +145,17 @@ def get_watchlist_service(session: AsyncSession = Depends(get_db_session)) -> Wa
         instrument_repo=inst_repo,
         instrument_service=inst_service,
     )
+
+
+def get_provider_service(session: AsyncSession = Depends(get_db_session)) -> ProviderService:
+    """Provide ProviderService instance bound to the request's database session."""
+    return ProviderService(provider_repo=SignalProviderRepository(session))
+
+
+def get_strategy_service(session: AsyncSession = Depends(get_db_session)) -> StrategyService:
+    """Provide StrategyService instance bound to the request's database session."""
+    return StrategyService(strategy_repo=StrategyRepository(session))
+
 
 
 

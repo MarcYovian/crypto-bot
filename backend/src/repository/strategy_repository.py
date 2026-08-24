@@ -38,3 +38,13 @@ class StrategyRepository(BaseRepository[Strategy, StrategyCreate, StrategyUpdate
         stmt = select(Strategy).where(Strategy.is_active.is_(True))
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_all_strategies(self) -> List[Strategy]:
+        """Fetch all strategies ordered by id ASC.
+        
+        Returns:
+            List of all Strategy instances.
+        """
+        stmt = select(Strategy).order_by(Strategy.id.asc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

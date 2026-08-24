@@ -49,6 +49,12 @@ from src.schemas.master import (
     WatchlistToggleRequest,
     InstrumentDTO,
     SyncInstrumentsResponseDTO,
+    SignalProviderDTO,
+    SignalProviderCreateRequest,
+    ProviderPerformanceDTO,
+    TPAllocationDTO,
+    StrategyDTO,
+    StrategyUpdateRequest,
 )
 
 from src.schemas.signal import (
@@ -186,6 +192,12 @@ __all__ = [
     "WatchlistToggleRequest",
     "InstrumentDTO",
     "SyncInstrumentsResponseDTO",
+    "SignalProviderDTO",
+    "SignalProviderCreateRequest",
+    "ProviderPerformanceDTO",
+    "TPAllocationDTO",
+    "StrategyDTO",
+    "StrategyUpdateRequest",
     # Signal
     "ParsedSignalDTO",
     "TradingSignalBase",
