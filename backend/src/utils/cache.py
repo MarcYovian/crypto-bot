@@ -54,6 +54,18 @@ class AsyncInMemoryCache:
                 return True
             return False
 
+    async def get_by_prefix(self, prefix: str) -> Dict[str, Any]:
+        """Retrieve all non-expired key-value pairs matching a given prefix."""
+        async with self._lock:
+            result: Dict[str, Any] = {}
+            for k, entry in list(self._store.items()):
+                if k.startswith(prefix):
+                    if entry.is_expired:
+                        del self._store[k]
+                    else:
+                        result[k] = entry.value
+            return result
+
     async def invalidate(self, prefix: str) -> int:
         """Invalidate all keys starting with the given prefix. Returns count of deleted keys."""
         async with self._lock:

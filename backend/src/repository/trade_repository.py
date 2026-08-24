@@ -362,3 +362,104 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_active_positions_with_relations(self, account_id: int) -> List[Trade]:
+        """Fetch active trades with instrument, orders, and events eagerly loaded.
+        
+        Args:
+            account_id: Trading account ID.
+            
+        Returns:
+            List of active Trade entities.
+        """
+        stmt = (
+            select(Trade)
+            .options(
+                selectinload(Trade.instrument),
+                selectinload(Trade.events),
+                selectinload(Trade.orders),
+            )
+            .where(
+                Trade.account_id == account_id,
+                Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]),
+            )
+            .order_by(Trade.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_history_paginated(
+        self,
+        account_id: int,
+        page: int = 1,
+        page_size: int = 20,
+        symbol: Optional[str] = None,
+        result: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> tuple[int, List[Trade]]:
+        """Fetch paginated closed/cancelled trades with total count and filters.
+        
+        Args:
+            account_id: Trading account ID.
+            page: Current page number (1-based).
+            page_size: Maximum records per page.
+            symbol: Optional ticker filter.
+            result: Optional outcome filter (WIN, LOSS, BREAKEVEN, CANCELLED).
+            start_date: Optional start datetime filter.
+            end_date: Optional end datetime filter.
+            
+        Returns:
+            Tuple of (total_matching_count, list_of_trade_entities).
+        """
+        from src.database.models.instruments import Instrument
+        from src.database.models.trade_summaries import TradeSummary
+
+        stmt = (
+            select(Trade)
+            .options(
+                selectinload(Trade.instrument),
+                selectinload(Trade.summary),
+            )
+            .where(
+                Trade.account_id == account_id,
+                Trade.status.in_(["CLOSED", "CANCELLED"]),
+            )
+        )
+
+        count_stmt = select(func.count(Trade.id)).where(
+            Trade.account_id == account_id,
+            Trade.status.in_(["CLOSED", "CANCELLED"]),
+        )
+
+        if symbol:
+            clean_symbol = symbol.strip().upper()
+            stmt = stmt.join(Trade.instrument).where(Instrument.symbol == clean_symbol)
+            count_stmt = count_stmt.join(Trade.instrument).where(Instrument.symbol == clean_symbol)
+
+        if result:
+            clean_result = result.strip().upper()
+            if clean_result == "CANCELLED":
+                stmt = stmt.where(Trade.status == "CANCELLED")
+                count_stmt = count_stmt.where(Trade.status == "CANCELLED")
+            else:
+                stmt = stmt.join(Trade.summary).where(TradeSummary.result == clean_result)
+                count_stmt = count_stmt.join(Trade.summary).where(TradeSummary.result == clean_result)
+
+        if start_date:
+            stmt = stmt.where(Trade.created_at >= start_date)
+            count_stmt = count_stmt.where(Trade.created_at >= start_date)
+
+        if end_date:
+            stmt = stmt.where(Trade.created_at <= end_date)
+            count_stmt = count_stmt.where(Trade.created_at <= end_date)
+
+        total_res = await self.session.execute(count_stmt)
+        total_count: int = total_res.scalar_one() or 0
+
+        offset = max(0, (page - 1) * page_size)
+        stmt = stmt.order_by(Trade.closed_at.desc().nullslast(), Trade.created_at.desc()).offset(offset).limit(page_size)
+        trades_res = await self.session.execute(stmt)
+        trades = list(trades_res.scalars().all())
+
+        return total_count, trades

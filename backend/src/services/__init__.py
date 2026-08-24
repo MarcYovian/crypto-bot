@@ -8,6 +8,8 @@ from src.services.position_manager import PositionManager
 from src.services.scheduler_service import SchedulerService
 from src.services.telegram_service import TelegramService
 from src.services.instrument_service import InstrumentService
+from src.services.auth_service import AuthService
+from src.services.analytics_service import AnalyticsService
 
 __all__ = [
     "PrecisionFilterService",
@@ -18,5 +20,8 @@ __all__ = [
     "SchedulerService",
     "TelegramService",
     "InstrumentService",
+    "AuthService",
+    "AnalyticsService",
 ]
+
 

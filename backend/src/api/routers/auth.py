@@ -1,17 +1,15 @@
 """Authentication router for admin login, token refresh, and user profile inspection."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-import jwt
 
-from src.api.deps import get_current_user, get_user_repo
+from src.api.deps import get_current_user, get_auth_service
 from src.database.models.users import User
-from src.repository.user_repository import UserRepository
 from src.schemas.user import LoginRequest, LoginResponse, TokenRefreshRequest, UserDTO
-from src.utils.security import (
-    verify_password,
-    create_access_token,
-    create_refresh_token,
-    decode_token,
+from src.services.auth_service import (
+    AuthService,
+    InvalidCredentialsError,
+    AccountDisabledError,
+    InvalidRefreshTokenError,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
@@ -20,80 +18,45 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 @router.post("/login", response_model=LoginResponse, summary="Admin login")
 async def login(
     request: LoginRequest,
-    user_repo: UserRepository = Depends(get_user_repo),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> LoginResponse:
     """Authenticate user credentials and return signed JWT access and refresh tokens."""
-    user = await user_repo.get_by_username(request.username)
-    if not user or not verify_password(request.password, user.password_hash):
+    try:
+        return await auth_service.authenticate(
+            username=request.username,
+            password=request.password,
+        )
+    except InvalidCredentialsError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
+            detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not user.is_active:
+        ) from exc
+    except AccountDisabledError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is disabled. Please contact administrator.",
-        )
-
-    token_data = {"sub": user.username, "role": user.role, "user_id": user.id}
-    access_token = create_access_token(data=token_data)
-    refresh_token = create_refresh_token(data=token_data)
-
-    return LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-        user=UserDTO.model_validate(user),
-    )
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/refresh", summary="Refresh JWT access token")
 async def refresh_token(
     request: TokenRefreshRequest,
-    user_repo: UserRepository = Depends(get_user_repo),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> dict:
     """Validate a signed refresh token and issue a fresh access token."""
     try:
-        payload = decode_token(request.refresh_token)
-        username = payload.get("sub")
-        token_type = payload.get("type")
-
-        if not username or token_type != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token payload.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except jwt.ExpiredSignatureError:
+        new_access_token = await auth_service.refresh_access_token(request.refresh_token)
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer",
+        }
+    except InvalidRefreshTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token has expired. Please login again.",
+            detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate refresh token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    user = await user_repo.get_by_username(username)
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User no longer active or exists.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token_data = {"sub": user.username, "role": user.role, "user_id": user.id}
-    new_access_token = create_access_token(data=token_data)
-
-    return {
-        "access_token": new_access_token,
-        "token_type": "bearer",
-    }
+        ) from exc
 
 
 @router.get("/me", response_model=UserDTO, summary="Get current authenticated user profile")
