@@ -21,7 +21,7 @@ services:
 
   crypto-bot:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: crypto_bot_app
     restart: unless-stopped
@@ -34,13 +34,37 @@ services:
       DATABASE_URL: postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db
       LOG_LEVEL: INFO
     env_file:
-      - .env
+      - ./backend/.env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: crypto_bot_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      crypto-bot:
+        condition: service_healthy
+
+  gateway:
+    image: nginx:alpine
+    container_name: crypto_bot_gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - crypto-bot
+      - frontend
 
 volumes:
   postgres_data:

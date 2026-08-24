@@ -19,11 +19,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy seluruh source code ke dalam container
 COPY . .
 
-# Set PYTHONPATH agar import `backend` dan `src` dapat ditemukan
-ENV PYTHONPATH=/app/backend:/app
+# Set PYTHONPATH agar import `src` dan `config` dapat ditemukan
+ENV PYTHONPATH=/app
 
 # Expose port untuk Web Dashboard REST & WebSocket API
 EXPOSE 8000
 
 # Jalankan Uvicorn ASGI Server saat container dimulai
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
