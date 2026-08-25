@@ -20,6 +20,9 @@ services:
       - default
 
   crypto-bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     image: ${BACKEND_IMAGE:-ghcr.io/marcyovian/crypto-bot-backend}:${IMAGE_TAG:-latest}
     container_name: crypto_bot_app
     restart: unless-stopped
@@ -47,6 +50,9 @@ services:
       - cloudflare_net
 
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     image: ${FRONTEND_IMAGE:-ghcr.io/marcyovian/crypto-bot-frontend}:${IMAGE_TAG:-latest}
     container_name: crypto_bot_frontend
     restart: unless-stopped
