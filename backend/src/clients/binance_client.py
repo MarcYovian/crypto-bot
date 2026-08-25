@@ -1,9 +1,12 @@
 """External Binance Futures REST and WebSocket client using CCXT."""
 
 import asyncio
+import logging
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 import ccxt.async_support as ccxt
+
+logger = logging.getLogger(__name__)
 from src.domain.exceptions import (
     ExchangeError,
     ExchangeNetworkError,
@@ -196,13 +199,15 @@ class BinanceRestClient:
                 for b in item.get("brackets", []):
                     raw_cap = Decimal(str(b.get("notionalCap", 0)))
                     capped_val = min(raw_cap, max_safe_cap)
+                    b_bracket = b.get("bracket")
+                    b_lev = b.get("initialLeverage")
                     brackets_parsed.append({
-                        "bracket": int(b.get("bracket", 1)),
-                        "initial_leverage": int(b.get("initialLeverage", 20)),
+                        "bracket": int(b_bracket) if b_bracket is not None else 1,
+                        "initial_leverage": int(b_lev) if b_lev is not None else 20,
                         "notional_cap": capped_val,
-                        "notional_floor": Decimal(str(b.get("notionalFloor", 0))),
-                        "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio", "0.01"))),
-                        "cum": Decimal(str(b.get("cum", "0"))),
+                        "notional_floor": Decimal(str(b.get("notionalFloor") or 0)),
+                        "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio") or "0.01")),
+                        "cum": Decimal(str(b.get("cum") or 0)),
                     })
                 results.append({
                     "symbol": sym,
@@ -288,14 +293,17 @@ class BinanceRestClient:
         stop_price: Decimal,
         qty: Optional[Decimal] = None,
         client_order_id: Optional[str] = None,
-        close_position: bool = False,
+        close_position: bool = True,
+        working_type: str = "MARK_PRICE",
     ) -> Dict[str, Any]:
-        """Submit a Stop Loss order (STOP_MARKET)."""
+        """Submit a Stop Loss order (STOP_MARKET) with position-level binding and mark price trigger."""
         try:
             params: Dict[str, Any] = {
                 "stopPrice": float(stop_price),
+                "workingType": working_type,
+                "priceProtect": "TRUE",
             }
-            if close_position and qty is None:
+            if close_position:
                 params["closePosition"] = True
             else:
                 params["reduceOnly"] = True
@@ -303,7 +311,7 @@ class BinanceRestClient:
             if client_order_id:
                 params["newClientOrderId"] = client_order_id
 
-            amount_float = float(qty) if qty is not None else None
+            amount_float = float(qty) if (qty is not None and not close_position) else None
             side_lower = side.strip().lower()
 
             return await self.client.create_order(
@@ -324,10 +332,13 @@ class BinanceRestClient:
         tp_price: Decimal,
         qty: Decimal,
         client_order_id: Optional[str] = None,
+        working_type: str = "MARK_PRICE",
     ) -> Dict[str, Any]:
-        """Submit a Take Profit Limit order with reduceOnly=True."""
+        """Submit a Take Profit Market order (Conditional Split Target) with reduceOnly=True."""
         try:
             params: Dict[str, Any] = {
+                "stopPrice": float(tp_price),
+                "workingType": working_type,
                 "reduceOnly": True,
             }
             if client_order_id:
@@ -335,10 +346,9 @@ class BinanceRestClient:
 
             return await self.client.create_order(
                 symbol=symbol,
-                type="limit",
+                type="take_profit_market",
                 side=side.strip().lower(),
                 amount=float(qty),
-                price=float(tp_price),
                 params=params,
             )
         except Exception as e:
@@ -416,16 +426,22 @@ class BinanceRestClient:
             positions = await self.client.fetch_positions(symbols=symbols)
             results: List[Dict[str, Any]] = []
             for pos in positions:
-                contracts = pos.get("contracts", 0)
+                contracts = pos.get("contracts") or 0
                 if contracts and float(contracts) > 0:
+                    lev_raw = pos.get("leverage")
+                    raw_sym = str(pos.get("symbol") or "")
+                    clean_sym = raw_sym.replace("/", "").split(":")[0].upper()
+                    if not clean_sym and pos.get("info"):
+                        clean_sym = str(pos.get("info", {}).get("symbol", "")).upper()
                     results.append({
-                        "symbol": pos.get("symbol"),
+                        "symbol": clean_sym,
+                        "raw_symbol": raw_sym,
                         "side": pos.get("side"),
                         "contracts": Decimal(str(contracts)),
-                        "entry_price": Decimal(str(pos.get("entryPrice", 0))),
-                        "mark_price": Decimal(str(pos.get("markPrice", 0))),
-                        "unrealized_pnl": Decimal(str(pos.get("unrealizedPnl", 0))),
-                        "leverage": int(pos.get("leverage", 1)),
+                        "entry_price": Decimal(str(pos.get("entryPrice") or 0)),
+                        "mark_price": Decimal(str(pos.get("markPrice") or 0)),
+                        "unrealized_pnl": Decimal(str(pos.get("unrealizedPnl") or 0)),
+                        "leverage": int(lev_raw) if lev_raw is not None else 1,
                         "liquidation_price": Decimal(str(pos.get("liquidationPrice") or 0)),
                     })
             return results
@@ -508,7 +524,7 @@ class BinanceRestClient:
 
 
 class BinanceWebSocketClient:
-    """Async WebSocket client for Binance User Data Stream and Ticker updates."""
+    """Async WebSocket client for Binance User Data Stream and Ticker updates using CCXT Pro."""
 
     def __init__(
         self,
@@ -521,13 +537,47 @@ class BinanceWebSocketClient:
         self.secret_key = secret_key or api_secret
         self.testnet = testnet
         self.is_running = False
+        self.exchange: Optional[Any] = None
+
+    def _init_exchange(self) -> None:
+        if self.exchange is None and self.api_key:
+            try:
+                import ccxt.pro as ccxtpro
+                self.exchange = ccxtpro.binance({
+                    "apiKey": self.api_key or "",
+                    "secret": self.secret_key or "",
+                    "enableRateLimit": True,
+                    "options": {
+                        "defaultType": "future",
+                        "adjustForTimeDifference": True,
+                    },
+                })
+                if self.testnet:
+                    if hasattr(self.exchange, "enable_demo_trading"):
+                        self.exchange.enable_demo_trading(True)
+                    else:
+                        self.exchange.set_sandbox_mode(True)
+            except Exception as e:
+                logger.error(f"Failed to initialize CCXT Pro Binance WebSocket: {e}")
 
     async def watch_orders_stream(self, callback_coro) -> None:
-        """Subscribe to order fill status updates."""
+        """Subscribe to live order fill status updates."""
         self.is_running = True
-        # Streaming loop implementation with callback handler
+        self._init_exchange()
+        if not self.exchange:
+            logger.warning("Binance WebSocket exchange not initialized (missing API key).")
+            return
+
+        logger.info("Binance User Data Stream WebSocket listener active and watching orders.")
         while self.is_running:
-            await asyncio.sleep(1)
+            try:
+                orders = await self.exchange.watch_orders()
+                for order in orders:
+                    await callback_coro(order)
+            except Exception as e:
+                if self.is_running:
+                    logger.warning(f"Binance WebSocket watch_orders stream error: {e}. Reconnecting in 3s...")
+                    await asyncio.sleep(3)
 
     async def watch_ticker_stream(self, symbols: List[str], callback_coro) -> None:
         """Subscribe to live mark price tickers."""
@@ -538,3 +588,8 @@ class BinanceWebSocketClient:
     async def close(self) -> None:
         """Stop websocket loops and close connections."""
         self.is_running = False
+        if self.exchange:
+            try:
+                await self.exchange.close()
+            except Exception:
+                pass

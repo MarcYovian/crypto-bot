@@ -269,7 +269,8 @@ async def test_trade_expired_waiting_filter(async_session: AsyncSession, base_se
     acc = base_setup["account"]
     inst = base_setup["instrument"]
 
-    now = datetime.now()
+    from datetime import timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     # Fresh trade (created now)
     t_fresh = Trade(
         account_id=acc.id,

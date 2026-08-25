@@ -145,7 +145,8 @@ async def test_scheduler_cleanup_orphan_orders_job(async_session: AsyncSession, 
     order_repo = OrderRepository(async_session)
 
     # Create stale trade
-    stale_time = datetime.now() - timedelta(hours=5)
+    from datetime import timezone
+    stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=5)
     trade = await trade_repo.create(TradeCreate(
         account_id=acc.id,
         instrument_id=inst.id,

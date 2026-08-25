@@ -30,7 +30,7 @@ from src.repository.exchange_repository import ExchangeRepository
 from src.repository.trading_account_repository import TradingAccountRepository
 from src.repository.trading_credential_repository import TradingCredentialRepository
 from src.clients.binance_client import BinanceRestClient
-from src.clients.telegram_client import TelegramNotifierClient
+from src.clients.telegram_client import TelegramNotifierClient, format_crypto_price, format_crypto_qty
 
 logger = logging.getLogger(__name__)
 
@@ -773,17 +773,23 @@ class TelegramService:
         )
 
         # 2. Format Signal Card & Inline Keyboard
-        tps_str = ", ".join([f"${tp:,.2f}" for tp in parsed_dto.tp_targets]) if parsed_dto.tp_targets else "N/A"
+        price_prec = inst.price_precision if inst else 4
+        tps_str = ", ".join([f"${format_crypto_price(tp, price_prec)}" for tp in parsed_dto.tp_targets]) if parsed_dto.tp_targets else "N/A"
         side_icon = "🟢 LONG" if parsed_dto.side == "BUY" else "🔴 SHORT"
         entry_val = parsed_dto.avg_entry_price or parsed_dto.entry_min or Decimal("0")
+        lev_val = parsed_dto.leverage or 20
+
+        # Calculate SL distance %
+        stop_dist = abs(entry_val - parsed_dto.sl_price)
+        sl_pct = (stop_dist / entry_val * 100) if entry_val > Decimal("0") else Decimal("0")
 
         text = (
             f"⚡ <b>SINYAL TRADING BARU TERDETEKSI</b> ⚡\n\n"
-            f"💎 <b>Pair:</b> #{parsed_dto.symbol} ({side_icon} {parsed_dto.leverage}x)\n"
-            f"💵 <b>Entry:</b> ${entry_val:,.2f}\n"
-            f"🛑 <b>Stop Loss:</b> ${parsed_dto.sl_price:,.2f}\n"
+            f"💎 <b>Pair:</b> #{parsed_dto.symbol} ({side_icon} {lev_val}x)\n"
+            f"💵 <b>Entry:</b> ${format_crypto_price(entry_val, price_prec)}\n"
+            f"🛑 <b>Stop Loss:</b> ${format_crypto_price(parsed_dto.sl_price, price_prec)} (-{sl_pct:.2f}%)\n"
             f"🎯 <b>Targets:</b> {tps_str}\n\n"
-            f"🛡️ <i>Toleransi Risiko: 2.0% dari Saldo Modal</i>\n"
+            f"🛡️ <i>Toleransi Risiko: Maksimal 2.0% dari Saldo Modal</i>\n"
             f"Silakan konfirmasi eksekusi order:"
         )
 
@@ -861,47 +867,67 @@ class TelegramService:
         if len(parts) < 2:
             return {"status": "INVALID_CALLBACK"}
 
-        action = parts[0]
-        try:
-            signal_id = int(parts[1])
-        except ValueError:
-            return {"status": "INVALID_SIGNAL_ID"}
+        raw_action = parts[0].upper()
+        if raw_action == "SIG" and len(parts) >= 3:
+            action = "APPROVE" if parts[1].upper() == "APP" else "REJECT"
+            try:
+                signal_id = int(parts[2])
+            except ValueError:
+                return {"status": "INVALID_SIGNAL_ID"}
+        else:
+            action = raw_action
+            try:
+                signal_id = int(parts[1])
+            except ValueError:
+                return {"status": "INVALID_SIGNAL_ID"}
 
         signal = await self.signal_repo.get(signal_id)
         if not signal:
             return {"status": "SIGNAL_NOT_FOUND", "signal_id": signal_id}
+
+        target_chat = chat_id if (chat_id not in (1, "1", None, "") and str(chat_id).upper() != "ADMIN_CHANNEL") else (self.telegram_client.default_chat_id or chat_id)
 
         if action == "APPROVE":
             # 1. Update status
             await self.signal_repo.update_confirmation_status(signal_id, "APPROVED")
             await self.signal_repo.update_status(signal_id, "EXECUTED")
 
-            # 2. Reconstruct DTO
-            tps = []
-            if signal.tp1_price:
-                tps.append(signal.tp1_price)
-            if signal.tp2_price:
-                tps.append(signal.tp2_price)
-            if signal.tp3_price:
-                tps.append(signal.tp3_price)
+            # 2. Reconstruct DTO from raw message or DB fields
+            dto = None
+            if signal.raw_message:
+                try:
+                    re_parsed = self.signal_parser.parse(signal.raw_message)
+                    if re_parsed.is_valid:
+                        dto = re_parsed
+                except Exception:
+                    pass
 
-            sym = "BTCUSDT"
-            if self.instrument_repo and signal.instrument_id:
-                inst = await self.instrument_repo.get(signal.instrument_id)
-                if inst:
-                    sym = inst.symbol
+            if not dto:
+                tps = []
+                if signal.tp1_price:
+                    tps.append(signal.tp1_price)
+                if signal.tp2_price:
+                    tps.append(signal.tp2_price)
+                if signal.tp3_price:
+                    tps.append(signal.tp3_price)
 
-            dto = ParsedSignalDTO(
-                raw_text="TELEGRAM_APPROVED_SIGNAL",
-                symbol=sym,
-                side=signal.side,
-                order_type="LIMIT",
-                entry_min=signal.entry_min or Decimal("0"),
-                entry_max=signal.entry_max or Decimal("0"),
-                sl_price=signal.sl_price,
-                tp_targets=tps,
-                leverage=20,
-            )
+                sym = "BTCUSDT"
+                if self.instrument_repo and signal.instrument_id:
+                    inst = await self.instrument_repo.get(signal.instrument_id)
+                    if inst:
+                        sym = inst.symbol
+
+                dto = ParsedSignalDTO(
+                    raw_text="TELEGRAM_APPROVED_SIGNAL",
+                    symbol=sym,
+                    side=signal.side,
+                    order_type="LIMIT",
+                    entry_min=signal.entry_min or Decimal("0"),
+                    entry_max=signal.entry_max or Decimal("0"),
+                    sl_price=signal.sl_price,
+                    tp_targets=tps,
+                    leverage=20,
+                )
 
             # 3. Execute trade
             try:
@@ -914,21 +940,19 @@ class TelegramService:
                 # 4. Edit Telegram message if client attached
                 if self.telegram_client and message_id:
                     try:
-                        target_chat = chat_id if chat_id != 1 else "ADMIN_CHANNEL"
                         await self.telegram_client.edit_message_text(
                             chat_id=target_chat,
                             message_id=message_id,
-                            text=f"✅ <b>SINYAL #{signal_id} DISETUJUI & DIEKSEKUSI</b>\nTrade ID: #{exec_res.trade_id} ({dto.symbol} {dto.side})",
+                            text=f"✅ <b>SINYAL #{signal_id} DISETUJUI & DIEKSEKUSI</b>\nTrade ID: #{exec_res.trade_id} (#{dto.symbol} {dto.side})",
                         )
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        logger.error(f"Error editing message on APPROVE: {err}")
 
                 return {"status": "APPROVED", "trade_id": exec_res.trade_id}
             except Exception as e:
                 logger.error(f"Error executing approved signal #{signal_id}: {e}")
                 if self.telegram_client and message_id:
                     try:
-                        target_chat = chat_id if chat_id != 1 else "ADMIN_CHANNEL"
                         await self.telegram_client.edit_message_text(
                             chat_id=target_chat,
                             message_id=message_id,
@@ -938,23 +962,33 @@ class TelegramService:
                                 f"👉 <i>Periksa kredensial dengan <code>/setup_account</code> atau cek status API Key Binance Anda.</i>"
                             ),
                         )
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        logger.error(f"Error editing message on EXECUTION_FAILED: {err}")
                 return {"status": "EXECUTION_FAILED", "error": str(e), "signal_id": signal_id}
 
         elif action == "REJECT":
             await self.signal_repo.update_confirmation_status(signal_id, "REJECTED")
             await self.signal_repo.update_status(signal_id, "REJECTED")
 
+            sym = "UNKNOWN"
+            if self.instrument_repo and signal.instrument_id:
+                inst = await self.instrument_repo.get(signal.instrument_id)
+                if inst:
+                    sym = inst.symbol
+
             if self.telegram_client and message_id:
                 try:
                     await self.telegram_client.edit_message_text(
-                        chat_id="ADMIN_CHANNEL",
+                        chat_id=target_chat,
                         message_id=message_id,
-                        text=f"❌ <b>SINYAL #{signal_id} DITOLAK OLEH USER</b>",
+                        text=(
+                            f"❌ <b>SINYAL #{signal_id} DITOLAK</b>\n\n"
+                            f"💎 <b>Pair:</b> #{sym} ({signal.side})\n"
+                            f"🛡️ <i>Status: Dibatalkan oleh user. Tidak ada order yang dieksekusi.</i>"
+                        ),
                     )
-                except Exception:
-                    pass
+                except Exception as err:
+                    logger.error(f"Error editing message on REJECT: {err}")
 
             return {"status": "REJECTED", "signal_id": signal_id}
 

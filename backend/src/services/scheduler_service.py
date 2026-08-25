@@ -255,7 +255,7 @@ class SchedulerService:
             try:
                 live_positions = await self.binance_client.fetch_positions()
                 for pos in live_positions:
-                    sym = pos.get("symbol", "").upper()
+                    sym = str(pos.get("symbol", "")).upper().replace("/", "").split(":")[0]
                     size = Decimal(str(pos.get("contracts", 0.0)))
                     positions_map[sym] = size
             except Exception as e:
@@ -267,7 +267,8 @@ class SchedulerService:
             if not instrument:
                 continue
 
-            live_qty = positions_map.get(instrument.symbol.upper(), Decimal("0.0"))
+            inst_sym = instrument.symbol.upper().replace("/", "").split(":")[0]
+            live_qty = positions_map.get(inst_sym, Decimal("0.0"))
 
             # If position is closed on Binance but still open in DB
             if live_qty == Decimal("0.0") and trade.status in ("OPEN", "PARTIAL"):
