@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto_bot_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cryptobot_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-cryptobot_db}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cryptobot} -d ${POSTGRES_DB:-cryptobot_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  crypto-bot:
+    image: ${BACKEND_IMAGE:-ghcr.io/marcyovian/crypto-bot-backend}:${IMAGE_TAG:-latest}
+    container_name: crypto_bot_app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    env_file:
+      - ${ENV_FILE:-./backend/.env}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - default
+      - cloudflare_net
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/marcyovian/crypto-bot-frontend}:${IMAGE_TAG:-latest}
+    container_name: crypto_bot_frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      crypto-bot:
+        condition: service_healthy
+    networks:
+      - default
+      - cloudflare_net
+
+  gateway:
+    image: nginx:alpine
+    container_name: crypto_bot_gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/certbot/conf:/etc/letsencrypt:ro
+      - ./docker/certbot/www:/var/www/certbot:ro
+    depends_on:
+      - crypto-bot
+      - frontend
+    networks:
+      - default
+      - cloudflare_net
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: crypto_bot_internal
+  cloudflare_net:
+    external: true

@@ -174,7 +174,7 @@ class PositionManager:
 
             await self._move_stop_loss(
                 trade=trade,
-                new_sl_price=trailing_price,
+                new_sl_price=trailing_price or Decimal("0"),
                 is_bep=False,
                 is_trailing=True,
                 event_type="TRAILING_SL_UPDATED",

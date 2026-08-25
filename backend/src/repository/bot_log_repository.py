@@ -158,4 +158,4 @@ class BotLogRepository(BaseRepository[BotLog, BotLogCreate, BaseSchema]):
         stmt = delete(BotLog).where(BotLog.created_at < cutoff)
         result = await self.session.execute(stmt)
         await self.session.commit()
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0) or 0)

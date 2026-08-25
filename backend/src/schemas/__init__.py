@@ -131,7 +131,6 @@ from src.schemas.system import (
     BotLogCreate,
     BotLogRead,
     BotStatusDTO,
-    GenericActionResponse,
     BotSettingsDTO,
     BotSettingsUpdateRequest,
     TradingCredentialCreateRequest,

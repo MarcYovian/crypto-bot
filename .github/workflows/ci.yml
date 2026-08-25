@@ -32,22 +32,24 @@ jobs:
           pip install mypy pytest pytest-cov anyio
 
       - name: Run Static Type Checking (Mypy)
+        working-directory: ./backend
         run: |
-          PYTHONPATH=backend mypy --explicit-package-bases --ignore-missing-imports backend/src/ backend/main.py
+          mypy --explicit-package-bases --ignore-missing-imports src/ main.py
 
       - name: Run Backend Pytest Suite with Coverage
+        working-directory: ./backend
         run: |
-          PYTHONPATH=backend pytest backend/tests/ --cov=backend/src --cov-report=term-missing --cov-report=xml:coverage.xml
+          pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Upload Backend Test Coverage
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-report
-          path: coverage.xml
+          path: backend/coverage.xml
           if-no-files-found: ignore
 
   # =========================================================================
-  # 2. FRONTEND CI (Node.js 24, ESLint, TypeScript Build, Vitest)
+  # 2. FRONTEND CI (Node.js 20 LTS, ESLint, TypeScript Build, Vitest)
   # =========================================================================
   frontend-ci:
     name: Frontend Lint, Build & Tests
@@ -57,10 +59,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 24
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
           cache: "npm"
           cache-dependency-path: "frontend/package-lock.json"
 

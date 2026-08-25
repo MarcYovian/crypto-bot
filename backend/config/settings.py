@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: int = 0
+    TELEGRAM_APP_ID: int = 0
+    TELEGRAM_APP_HASH: str = ""
 
     DEFAULT_LEVERAGE: int = 20
     CONFIDENCE_THRESHOLD: float = 0.70

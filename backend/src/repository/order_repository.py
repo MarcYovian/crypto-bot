@@ -139,7 +139,7 @@ class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate]):
         )
         result = await self.session.execute(stmt)
         await self.session.commit()
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0) or 0)
 
     async def update_order_fill(
         self,
@@ -184,5 +184,5 @@ class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate]):
         )
         result = await self.session.execute(stmt)
         await self.session.commit()
-        return int(result.rowcount)
+        return int(getattr(result, "rowcount", 0) or 0)
 

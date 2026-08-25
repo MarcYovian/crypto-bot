@@ -50,7 +50,10 @@ class InstrumentService:
         if not self.binance_client:
             self.binance_client = BinanceRestClient()
 
-        if (not self.binance_client.api_key or not self.binance_client.secret_key) and self.credential_repo:
+        api_key = getattr(self.binance_client, "api_key", None)
+        secret_key = getattr(self.binance_client, "secret_key", None)
+
+        if (not api_key or not secret_key) and self.credential_repo:
             try:
                 active_cred = await self.credential_repo.get_active_credential(account_id=1)
                 if active_cred and active_cred.encrypted_api_key:
@@ -59,11 +62,12 @@ class InstrumentService:
                         acc = await self.account_repo.get(active_cred.account_id)
                         if acc and acc.environment:
                             is_testnet = acc.environment.upper() == "TESTNET"
-                    self.binance_client.reconfigure(
-                        api_key=active_cred.encrypted_api_key,
-                        secret_key=active_cred.encrypted_secret_key,
-                        testnet=is_testnet,
-                    )
+                    if hasattr(self.binance_client, "reconfigure"):
+                        self.binance_client.reconfigure(
+                            api_key=active_cred.encrypted_api_key,
+                            secret_key=active_cred.encrypted_secret_key,
+                            testnet=is_testnet,
+                        )
             except Exception as e:
                 logger.warning(f"Could not auto-configure credentials for Binance client: {e}")
 
@@ -257,8 +261,8 @@ class InstrumentService:
 
             if self.watchlist_repo:
                 all_active = await self.instrument_repo.get_all_active(resolved_ex_id)
-                for item in all_active:
-                    await self.watchlist_repo.set_symbol_enabled(item.id, True)
+                for active_inst in all_active:
+                    await self.watchlist_repo.set_symbol_enabled(active_inst.id, True)
 
             # Bulk sync leverage brackets for all active instruments
             if self.bracket_repo:

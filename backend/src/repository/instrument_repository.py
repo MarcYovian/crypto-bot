@@ -1,7 +1,7 @@
 """Data-access repository for trading Instruments (symbol metadata and precision)."""
 
 from datetime import datetime
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Sequence
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,7 +81,7 @@ class InstrumentRepository(BaseRepository[Instrument, InstrumentCreate, Instrume
         return list(result.scalars().all())
 
     async def bulk_upsert_instruments(
-        self, instruments: List[Union[InstrumentCreate, Dict[str, Any]]]
+        self, instruments: Sequence[Union[InstrumentCreate, Dict[str, Any]]]
     ) -> int:
         """Insert or update instrument metadata synced from exchange info.
         

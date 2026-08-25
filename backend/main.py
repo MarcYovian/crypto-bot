@@ -79,8 +79,8 @@ class ApplicationContainer:
 
         # Business Services
         self.precision_service: Optional[PrecisionFilterService] = None
-        self.signal_parser: Optional[SignalParserService] = None
-        self.risk_calculator: Optional[RiskCalculatorService] = None
+        self.signal_parser: SignalParserService = SignalParserService()
+        self.risk_calculator: RiskCalculatorService = RiskCalculatorService()
         self.trade_service: Optional[TradeService] = None
         self.position_manager: Optional[PositionManager] = None
         self.scheduler: Optional[SchedulerService] = None

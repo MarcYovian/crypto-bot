@@ -272,7 +272,7 @@ class BinanceExecutionEngine:
                     symbol_info=symbol_info
                 )
                 if recalculated_risk.is_valid and recalculated_risk.position_size > 0:
-                    final_position_size = recalculated_risk.position_size
+                    final_position_size = float(recalculated_risk.position_size)
                     logger.info(f"[Trade #{trade_id}] MARKET Order Size Recalculated: {risk_res.position_size} -> {final_position_size} (Entry: {current_price})")
 
             # 3. Setup Account Leverage & Margin Type

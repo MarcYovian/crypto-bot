@@ -117,14 +117,19 @@ class BinanceRestClient:
                 if market.get("active") and market.get("linear") and market.get("quote") == "USDT":
                     info = market.get("info", {})
                     filters = {f.get("filterType"): f for f in info.get("filters", [])}
-
                     price_filter = filters.get("PRICE_FILTER", {})
                     lot_filter = filters.get("LOT_SIZE", {})
                     min_notional_filter = filters.get("MIN_NOTIONAL", {})
 
-                    tick_size_str = price_filter.get("tickSize") or str(market.get("precision", {}).get("price", "0.01"))
-                    step_size_str = lot_filter.get("stepSize") or str(market.get("precision", {}).get("amount", "0.001"))
-                    min_qty_str = lot_filter.get("minQty") or step_size_str
+                    price_prec = info.get("pricePrecision") or market.get("precision", {}).get("price")
+                    qty_prec = info.get("quantityPrecision") or market.get("precision", {}).get("amount")
+
+                    price_limit_min = market.get("limits", {}).get("price", {}).get("min")
+                    amount_limit_min = market.get("limits", {}).get("amount", {}).get("min")
+
+                    tick_size_str = price_filter.get("tickSize") or str(price_limit_min or "0.01")
+                    step_size_str = lot_filter.get("stepSize") or str(amount_limit_min or "0.001")
+                    min_qty_str = lot_filter.get("minQty") or str(amount_limit_min or step_size_str)
                     min_notional_str = min_notional_filter.get("notional") or str(market.get("limits", {}).get("cost", {}).get("min", "5.0"))
 
                     tick_dec = Decimal(str(tick_size_str)) if tick_size_str and Decimal(str(tick_size_str)) > 0 else Decimal("0.01")
@@ -133,16 +138,14 @@ class BinanceRestClient:
                     min_notional_dec = Decimal(str(min_notional_str)) if min_notional_str and Decimal(str(min_notional_str)) > 0 else Decimal("5.0")
 
                     # Calculate decimal places safely
-                    raw_price_prec = info.get("pricePrecision")
-                    if raw_price_prec is not None:
-                        price_precision = int(raw_price_prec)
+                    if price_prec is not None:
+                        price_precision = int(price_prec)
                     else:
                         price_exp = tick_dec.normalize().as_tuple().exponent
                         price_precision = abs(price_exp) if isinstance(price_exp, int) else 2
 
-                    raw_qty_prec = info.get("quantityPrecision")
-                    if raw_qty_prec is not None:
-                        qty_precision = int(raw_qty_prec)
+                    if qty_prec is not None:
+                        qty_precision = int(qty_prec)
                     else:
                         qty_exp = step_dec.normalize().as_tuple().exponent
                         qty_precision = abs(qty_exp) if isinstance(qty_exp, int) else 3
