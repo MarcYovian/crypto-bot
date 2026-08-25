@@ -38,7 +38,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     env_file:
-      - ${ENV_FILE:-./backend/.env}
+      - ${ENV_FILE:-./backend/.env.example}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

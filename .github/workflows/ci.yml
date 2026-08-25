@@ -116,3 +116,5 @@ jobs:
       - name: Validate Docker Compose Configuration
         run: |
           docker compose config
+          docker network create cloudflare_net 2>/dev/null || true
+          docker compose -f docker-compose.prod.yml config
