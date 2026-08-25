@@ -8,13 +8,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+import os
+
 # Import settings dan Base metadata
 try:
     from config.settings import settings
-    database_url = settings.DATABASE_URL
+    database_url = settings.DATABASE_URL or os.getenv("DATABASE_URL") or "postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db"
 except ImportError:
-    import os
-    database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/cryptobot")
+    database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db")
 
 from src.database.connection import Base
 import src.database.models  # Ensure all models are loaded for Alembic metadata
