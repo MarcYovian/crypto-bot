@@ -162,14 +162,18 @@ jobs:
     name: Send Deployment Status to Telegram
     runs-on: ubuntu-latest
     needs: [build-and-push, deploy-homelab]
-    if: always() && secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
+    if: always()
 
     steps:
       - name: Send Notification
+        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
         uses: appleboy/telegram-action@master
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_DEPLOY_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
         with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_DEPLOY_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_DEPLOY_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
           format: html
           message: |
             <b>🚀 CI/CD DEPLOYMENT REPORT</b>
