@@ -70,12 +70,9 @@ services:
     container_name: crypto_bot_gateway
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8088:80"
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./docker/certbot/conf:/etc/letsencrypt:ro
-      - ./docker/certbot/www:/var/www/certbot:ro
     depends_on:
       - crypto-bot
       - frontend
