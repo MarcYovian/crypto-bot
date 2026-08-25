@@ -115,4 +115,5 @@ jobs:
 
       - name: Validate Docker Compose Configuration
         run: |
+          cp backend/.env.example backend/.env
           docker compose config
