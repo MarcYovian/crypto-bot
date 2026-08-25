@@ -42,6 +42,10 @@ services:
       retries: 3
       start_period: 5s
 
+    networks:
+      - default
+      - cloudflare_net
+
   frontend:
     build:
       context: ./frontend
@@ -53,6 +57,9 @@ services:
     depends_on:
       crypto-bot:
         condition: service_healthy
+    networks:
+      - default
+      - cloudflare_net
 
   gateway:
     image: nginx:alpine
@@ -65,6 +72,15 @@ services:
     depends_on:
       - crypto-bot
       - frontend
+    networks:
+      - default
+      - cloudflare_net
 
 volumes:
   postgres_data:
+
+networks:
+  default:
+    name: crypto_bot_internal
+  cloudflare_net:
+    external: true
