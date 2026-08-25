@@ -1,0 +1,183 @@
+name: CD - Build, Push & Deploy to Server
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository_owner }}/crypto-bot-backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository_owner }}/crypto-bot-frontend
+
+jobs:
+  # =========================================================================
+  # 1. BUILD AND PUSH DOCKER IMAGES TO GITHUB CONTAINER REGISTRY (GHCR)
+  # =========================================================================
+  build-and-push:
+    name: Build & Push Images to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta-backend.outputs.version }}
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Backend Metadata & Build ---
+      - name: Extract Backend Metadata (Tags/Labels)
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=
+            type=semver,pattern={{version}}
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- Frontend Metadata & Build ---
+      - name: Extract Frontend Metadata (Tags/Labels)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=
+            type=semver,pattern={{version}}
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # =========================================================================
+  # 2. CONTINUOUS DEPLOYMENT TO HOMELAB (SELF-HOSTED RUNNER)
+  # =========================================================================
+  deploy-homelab:
+    name: Deploy to Homelab Server
+    runs-on: self-hosted
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Containers on Homelab
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag || 'latest' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '$HOME/apps/repos/crypto-bot' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GHCR_DEPLOY_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          echo "🚀 Starting Automated Homelab Deployment..."
+          
+          # Target deployment directory
+          TARGET_DIR=$(eval echo "$DEPLOY_PATH")
+          mkdir -p "$TARGET_DIR"
+          cd "$TARGET_DIR"
+
+          # Log in to GHCR
+          echo "$GHCR_PAT" | docker login $REGISTRY -u $GHCR_USER --password-stdin
+
+          # Pull newly published images
+          echo "📥 Pulling latest Docker images (tag: $IMAGE_TAG)..."
+          export IMAGE_TAG=$IMAGE_TAG
+          docker compose -f docker-compose.prod.yml pull
+
+          # Run Database Migrations
+          echo "🗄️ Running database migrations (Alembic)..."
+          docker compose -f docker-compose.prod.yml run --rm crypto-bot alembic upgrade head
+
+          # Restart containers with zero downtime
+          echo "🔄 Reloading containers..."
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+          # Health Check Verification
+          echo "💓 Checking backend health..."
+          sleep 6
+          for i in {1..6}; do
+            if curl -s -f http://localhost:8000/health | grep -q "healthy"; then
+              echo "✅ Backend Health Check PASSED!"
+              break
+            fi
+            echo "⏳ Waiting for service to become healthy ($i/6)..."
+            sleep 5
+          done
+
+          # Prune dangling Docker images
+          echo "🧹 Cleaning up obsolete Docker images..."
+          docker image prune -f
+
+          echo "🎉 Homelab Deployment Completed Successfully!"
+
+  # =========================================================================
+  # 3. TELEGRAM NOTIFICATION (SUCCESS / FAILURE)
+  # =========================================================================
+  notify-telegram:
+    name: Send Deployment Status to Telegram
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-homelab]
+    if: always() && secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
+
+    steps:
+      - name: Send Notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: html
+          message: |
+            <b>🚀 CI/CD DEPLOYMENT REPORT</b>
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            <b>Repository:</b> ${{ github.repository }}
+            <b>Branch/Tag:</b> <code>${{ github.ref_name }}</code>
+            <b>Commit:</b> <code>${{ github.sha }}</code>
+            <b>Author:</b> ${{ github.actor }}
+            <b>Message:</b> ${{ github.event.head_commit.message }}
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            <b>Status:</b> ${{ needs.deploy-homelab.result == 'success' && '✅ DEPLOYED SUCCESSFULLY' || (needs.build-and-push.result == 'failure' && '❌ BUILD FAILED' || '⚠️ DEPLOYMENT FAILED') }}

@@ -65,6 +65,22 @@ class WatchlistRepository(BaseRepository[Watchlist, WatchlistCreate, WatchlistUp
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_all_watchlist_with_instruments(self) -> List[Watchlist]:
+        """Fetch all watchlist entries (enabled & disabled) with eagerly loaded Instrument and Leverage Brackets.
+        
+        Returns:
+            List of all Watchlist instances ordered by id ASC.
+        """
+        stmt = (
+            select(Watchlist)
+            .options(
+                selectinload(Watchlist.instrument).selectinload(Instrument.leverage_brackets)
+            )
+            .order_by(Watchlist.id.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def set_symbol_enabled(
         self, instrument_id: int, enabled: bool
     ) -> Watchlist:
@@ -86,6 +102,5 @@ class WatchlistRepository(BaseRepository[Watchlist, WatchlistCreate, WatchlistUp
             entry = Watchlist(instrument_id=instrument_id, enabled=enabled)
             self.session.add(entry)
 
-        await self.session.commit()
-        await self.session.refresh(entry)
+        await self.session.flush()
         return entry

@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-canvas: #080b10;
+    --bg-surface: #0f172a;
+    --bg-card: #1e293b;
+    --border-subdued: #1e293b;
+    --border-default: #334155;
+    --border-highlight: #475569;
+    --brand-primary: #38bdf8;
+    --trading-profit: #10b981;
+    --trading-profit-neon: #00e676;
+    --trading-loss: #ef4444;
+    --trading-loss-neon: #ff5252;
+    --trading-warning: #f59e0b;
+    --trading-neutral: #94a3b8;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: #f8fafc;
+    overflow-x: hidden;
+  }
+
+  /* Custom Professional Dark Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #080b10;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+@layer utilities {
+  /* Cyber Glassmorphism Surface Utility */
+  .glass-card {
+    background: rgba(30, 41, 59, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(51, 65, 85, 0.6);
+  }
+
+  .glass-card-hover {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card-hover:hover {
+    background: rgba(51, 65, 85, 0.85);
+    border-color: rgba(71, 85, 105, 0.9);
+  }
+
+  /* Dynamic Price Flash Animations */
+  .price-flash-up {
+    animation: flash-green 1s cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .price-flash-down {
+    animation: flash-red 1s cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  @keyframes flash-green {
+    0% {
+      background-color: rgba(16, 185, 129, 0.4);
+      color: #00e676;
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  @keyframes flash-red {
+    0% {
+      background-color: rgba(239, 68, 68, 0.4);
+      color: #ff5252;
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+}

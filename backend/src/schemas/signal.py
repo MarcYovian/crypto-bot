@@ -1,5 +1,6 @@
 """Pydantic schemas for Trading Signals and Telegram parsed payloads."""
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List
 from pydantic import Field, field_validator, model_validator
@@ -96,3 +97,62 @@ class SignalConfirmationDTO(BaseSchema):
 class TradingSignalRead(TradingSignalBase, TimestampMixin):
     """Response schema for TradingSignal."""
     id: int
+
+
+class SignalItemDTO(BaseSchema):
+    """Schema for an individual Telegram trading signal item in the feed."""
+    id: int = Field(..., description="Signal unique ID")
+    trace_id: Optional[str] = Field(default=None, description="Unique execution or signal trace ID")
+    raw_text: Optional[str] = Field(default=None, description="Original unparsed text message")
+    symbol: str = Field(..., description="Trading pair symbol")
+    side: str = Field(..., description="BUY or SELL")
+    entry_price: Optional[float] = Field(default=None, description="Primary entry target price")
+    sl_price: Optional[float] = Field(default=None, description="Stop Loss price")
+    tp_targets: List[float] = Field(default_factory=list, description="Take profit target prices")
+    confidence_score: Optional[float] = Field(default=None, description="AI or provider confidence score")
+    status: str = Field(..., description="Signal status: RECEIVED, EXECUTED, REJECTED, CANCELLED, EXPIRED, PENDING, PROCESSED")
+    created_at: datetime = Field(..., description="Timestamp when signal was received")
+
+
+class PaginatedSignalListDTO(BaseSchema):
+    """Paginated container for trading signals feed."""
+    total: int = Field(..., description="Total matching signal records")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Records per page")
+    items: List[SignalItemDTO] = Field(default_factory=list, description="Signal feed items")
+
+
+class ManualSignalExecutionRequest(BaseSchema):
+    """Payload for manually executing a trading signal from the dashboard."""
+    symbol: str = Field(..., min_length=2, max_length=30, description="Trading pair symbol, e.g. BTCUSDT")
+    side: str = Field(..., pattern="^(BUY|SELL|buy|sell)$", description="Trade side: BUY or SELL")
+    entry_price: float = Field(..., gt=0, description="Desired entry price")
+    sl_price: float = Field(..., gt=0, description="Stop Loss price")
+    tp_targets: List[float] = Field(..., min_length=1, description="List of take profit prices")
+    leverage: Optional[int] = Field(default=None, ge=1, le=125, description="Optional leverage multiplier")
+    auto_tp_sl: bool = Field(default=True, description="Whether to automatically attach TP/SL bracket orders")
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("side")
+    @classmethod
+    def uppercase_side(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class TradeExecutionResultResponseDTO(BaseSchema):
+    """Schema for response when a manual signal execution completes."""
+    is_success: bool = Field(..., description="Whether execution was successful")
+    trade_id: Optional[int] = Field(default=None, description="Created trade ID if successful")
+    symbol: str = Field(..., description="Trading pair symbol")
+    side: str = Field(..., description="Trade side: BUY or SELL")
+    position_size: float = Field(default=0.0, description="Allocated lot position size")
+    leverage: Optional[int] = Field(default=None, description="Leverage multiplier applied")
+    entry_order_id: Optional[str] = Field(default=None, description="Exchange entry order ID")
+    sl_order_id: Optional[str] = Field(default=None, description="Exchange stop loss order ID")
+    tp_order_ids: List[str] = Field(default_factory=list, description="Exchange take profit order IDs")
+    message: str = Field(default="", description="Execution feedback message")
+

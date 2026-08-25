@@ -139,7 +139,7 @@ class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate]):
         )
         result = await self.session.execute(stmt)
         await self.session.commit()
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0) or 0)
 
     async def update_order_fill(
         self,
@@ -170,3 +170,19 @@ class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate]):
         await self.session.commit()
         await self.session.refresh(order)
         return order
+
+    async def cancel_all_active_orders(self) -> int:
+        """Bulk update all NEW and PARTIALLY_FILLED orders across all trades to CANCELED.
+
+        Returns:
+            Number of cancelled order rows.
+        """
+        stmt = (
+            update(Order)
+            .where(Order.status.in_(["NEW", "PARTIALLY_FILLED"]))
+            .values(status="CANCELED", updated_at=datetime.now())
+        )
+        result = await self.session.execute(stmt)
+        await self.session.commit()
+        return int(getattr(result, "rowcount", 0) or 0)
+

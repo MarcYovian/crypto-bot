@@ -4,7 +4,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Any, Dict
 from src.domain.entities.trade import OrderFillDTO
-from src.domain.exceptions.trade import TradeNotFoundError
+from src.domain.exceptions.trade import (
+    TradeNotFoundError,
+    InvalidTradeStateError,
+    TradeExecutionError,
+)
 from src.schemas.order import ExecutionCreate, OrderCreate
 from src.schemas.event_summary import TradeSummaryCreate
 from src.repository.trade_repository import TradeRepository
@@ -17,6 +21,7 @@ from src.repository.bot_setting_repository import BotSettingRepository
 from src.repository.risk_profile_repository import RiskProfileRepository
 from src.clients.binance_client import BinanceRestClient
 from src.clients.telegram_client import TelegramNotifierClient
+from src.api.websocket_manager import ws_manager
 
 
 class PositionManager:
@@ -87,6 +92,16 @@ class PositionManager:
                 event_type="ENTRY",
                 payload={"fill_price": float(fill.fill_price), "fill_qty": float(fill.fill_qty)},
             )
+            await ws_manager.broadcast(
+                "ORDER_FILLED",
+                {
+                    "trade_id": trade.id,
+                    "symbol": fill.symbol,
+                    "purpose": "ENTRY",
+                    "fill_price": float(fill.fill_price),
+                    "fill_qty": float(fill.fill_qty),
+                },
+            )
 
         # CASE 2: TAKE PROFIT 1 Fill (Break-Even Protection Move)
         elif purpose_upper in ("TP1", "TAKE_PROFIT_1"):
@@ -95,6 +110,16 @@ class PositionManager:
                 trade_id=trade.id,
                 event_type="TP1_HIT",
                 payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+            )
+            await ws_manager.broadcast(
+                "TP_HIT",
+                {
+                    "trade_id": trade.id,
+                    "symbol": fill.symbol,
+                    "tp_level": 1,
+                    "fill_price": float(fill.fill_price),
+                    "realized_pnl": float(fill.realized_pnl),
+                },
             )
 
             # Move SL to Break-Even (Entry Price)
@@ -131,6 +156,16 @@ class PositionManager:
                 event_type="TP2_HIT",
                 payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
             )
+            await ws_manager.broadcast(
+                "TP_HIT",
+                {
+                    "trade_id": trade.id,
+                    "symbol": fill.symbol,
+                    "tp_level": 2,
+                    "fill_price": float(fill.fill_price),
+                    "realized_pnl": float(fill.realized_pnl),
+                },
+            )
 
             # Move SL to TP1 level
             tp1_orders = await self.order_repo.get_orders_by_purpose(trade.id, "TP1") or await self.order_repo.get_orders_by_purpose(trade.id, "TAKE_PROFIT_1")
@@ -139,7 +174,7 @@ class PositionManager:
 
             await self._move_stop_loss(
                 trade=trade,
-                new_sl_price=trailing_price,
+                new_sl_price=trailing_price or Decimal("0"),
                 is_bep=False,
                 is_trailing=True,
                 event_type="TRAILING_SL_UPDATED",
@@ -168,6 +203,16 @@ class PositionManager:
                 event_type="TP3",
                 payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
             )
+            await ws_manager.broadcast(
+                "TP_HIT",
+                {
+                    "trade_id": trade.id,
+                    "symbol": fill.symbol,
+                    "tp_level": 3,
+                    "fill_price": float(fill.fill_price),
+                    "realized_pnl": float(fill.realized_pnl),
+                },
+            )
             await self.trade_repo.reduce_position_qty(trade_id=trade.id, closed_qty=fill.fill_qty)
             await self.finalize_trade_closure(trade_id=trade.id, close_reason="TP3_HIT", result_type="WIN")
 
@@ -177,6 +222,15 @@ class PositionManager:
                 trade_id=trade.id,
                 event_type="SL",
                 payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+            )
+            await ws_manager.broadcast(
+                "SL_HIT",
+                {
+                    "trade_id": trade.id,
+                    "symbol": fill.symbol,
+                    "fill_price": float(fill.fill_price),
+                    "realized_pnl": float(fill.realized_pnl),
+                },
             )
             await self.trade_repo.reduce_position_qty(trade_id=trade.id, closed_qty=fill.fill_qty)
             await self.finalize_trade_closure(trade_id=trade.id, close_reason="SL_HIT")
@@ -273,7 +327,9 @@ class PositionManager:
         result_type: Optional[str] = None,
     ) -> Any:
         """Finalize closed trade, cancel remaining orders, calculate PnL, and save TradeSummary."""
-        trade = await self.trade_repo.get(trade_id)
+        trade = await self.trade_repo.get_detail(trade_id)
+        if not trade:
+            trade = await self.trade_repo.get(trade_id)
         if not trade:
             raise TradeNotFoundError(f"Trade {trade_id} not found", trade_id=trade_id)
 
@@ -391,16 +447,50 @@ class PositionManager:
                             )
                         except Exception:
                             pass
+
+                    await ws_manager.broadcast(
+                        "CIRCUIT_BREAKER_TRIGGERED",
+                        {
+                            "reason": "Daily loss limit reached",
+                            "daily_loss": float(today_net_pnl),
+                            "max_limit": float(max_daily_loss),
+                        },
+                    )
             except Exception:
                 pass
+
+        await ws_manager.broadcast(
+            "TRADE_CLOSED",
+            {
+                "trade_id": trade.id,
+                "symbol": sym,
+                "close_reason": close_reason,
+                "result": res,
+                "net_pnl": float(net_pnl),
+                "roi": float(roi),
+            },
+        )
 
         return summary
 
     async def close_position_market(self, trade_id: int, reason: str = "MANUAL_CLOSE") -> bool:
-        """Emergency or manual market close of an open trade."""
-        trade = await self.trade_repo.get(trade_id)
-        if not trade or trade.status not in ("OPEN", "PARTIAL", "WAITING_ENTRY"):
-            return False
+        """Emergency or manual market close of an open trade.
+
+        Raises:
+            TradeNotFoundError: If trade does not exist.
+            InvalidTradeStateError: If trade is already CLOSED or CANCELLED.
+        """
+        trade = await self.trade_repo.get_detail(trade_id)
+        if not trade:
+            trade = await self.trade_repo.get(trade_id)
+        if not trade:
+            raise TradeNotFoundError(f"Trade with ID {trade_id} was not found.", trade_id=trade_id)
+
+        if trade.status in ("CLOSED", "CANCELLED"):
+            raise InvalidTradeStateError(
+                f"Trade #{trade_id} cannot be closed because it is already {trade.status}.",
+                trade_id=trade_id,
+            )
 
         sym = trade.instrument.symbol if getattr(trade, "instrument", None) else "BTCUSDT"
         exit_side = "SELL" if trade.side == "BUY" else "BUY"

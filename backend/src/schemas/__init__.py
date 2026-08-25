@@ -4,6 +4,8 @@ from src.schemas.common import (
     BaseSchema,
     TimestampMixin,
     PaginatedResponse,
+    GenericActionResponse,
+    ErrorResponse,
 )
 
 from src.schemas.master import (
@@ -43,6 +45,16 @@ from src.schemas.master import (
     WatchlistCreate,
     WatchlistUpdate,
     WatchlistRead,
+    WatchlistItemDTO,
+    WatchlistToggleRequest,
+    InstrumentDTO,
+    SyncInstrumentsResponseDTO,
+    SignalProviderDTO,
+    SignalProviderCreateRequest,
+    ProviderPerformanceDTO,
+    TPAllocationDTO,
+    StrategyDTO,
+    StrategyUpdateRequest,
 )
 
 from src.schemas.signal import (
@@ -52,6 +64,10 @@ from src.schemas.signal import (
     TradingSignalUpdate,
     TradingSignalRead,
     SignalConfirmationDTO,
+    SignalItemDTO,
+    PaginatedSignalListDTO,
+    ManualSignalExecutionRequest,
+    TradeExecutionResultResponseDTO,
 )
 
 from src.schemas.risk import (
@@ -62,6 +78,8 @@ from src.schemas.risk import (
     TradeRiskCreate,
     TradeRiskRead,
     RiskCalculationResultDTO,
+    RiskSimulationRequest,
+    RiskSimulationResponse,
 )
 
 from src.schemas.trade import (
@@ -71,6 +89,17 @@ from src.schemas.trade import (
     TradeStatusUpdate,
     TradeRead,
     TradeDetailRead,
+    ActiveTradeDTO,
+    ActiveTradeTPLevelDTO,
+    TradeHistoryItemDTO,
+    PaginatedTradeHistoryDTO,
+    TradeRiskDetailDTO,
+    TradeOrderDetailDTO,
+    TradeExecutionDetailDTO,
+    TradeEventDetailDTO,
+    TradeSummaryDetailDTO,
+    TradeDetailDTO,
+    CloseTradeRequest,
 )
 
 from src.schemas.order import (
@@ -101,6 +130,28 @@ from src.schemas.system import (
     BotLogBase,
     BotLogCreate,
     BotLogRead,
+    BotStatusDTO,
+    BotSettingsDTO,
+    BotSettingsUpdateRequest,
+    TradingCredentialCreateRequest,
+    PanicCloseRequest,
+    PanicCloseResponseDTO,
+    CredentialSaveResponseDTO,
+    LogEntryDTO,
+)
+
+from src.schemas.user import (
+    UserDTO,
+    LoginRequest,
+    LoginResponse,
+    TokenRefreshRequest,
+    UserCreateRequest,
+    UserUpdatePasswordRequest,
+)
+
+from src.schemas.analytics import (
+    AnalyticsSummaryDTO,
+    EquityPointDTO,
 )
 
 __all__ = [
@@ -108,6 +159,8 @@ __all__ = [
     "BaseSchema",
     "TimestampMixin",
     "PaginatedResponse",
+    "GenericActionResponse",
+    "ErrorResponse",
     # Master
     "ExchangeBase",
     "ExchangeCreate",
@@ -145,6 +198,16 @@ __all__ = [
     "WatchlistCreate",
     "WatchlistUpdate",
     "WatchlistRead",
+    "WatchlistItemDTO",
+    "WatchlistToggleRequest",
+    "InstrumentDTO",
+    "SyncInstrumentsResponseDTO",
+    "SignalProviderDTO",
+    "SignalProviderCreateRequest",
+    "ProviderPerformanceDTO",
+    "TPAllocationDTO",
+    "StrategyDTO",
+    "StrategyUpdateRequest",
     # Signal
     "ParsedSignalDTO",
     "TradingSignalBase",
@@ -152,6 +215,10 @@ __all__ = [
     "TradingSignalUpdate",
     "TradingSignalRead",
     "SignalConfirmationDTO",
+    "SignalItemDTO",
+    "PaginatedSignalListDTO",
+    "ManualSignalExecutionRequest",
+    "TradeExecutionResultResponseDTO",
     # Risk
     "DailyRiskConfigBase",
     "DailyRiskConfigCreate",
@@ -160,6 +227,8 @@ __all__ = [
     "TradeRiskCreate",
     "TradeRiskRead",
     "RiskCalculationResultDTO",
+    "RiskSimulationRequest",
+    "RiskSimulationResponse",
     # Trade
     "TradeBase",
     "TradeCreate",
@@ -167,6 +236,17 @@ __all__ = [
     "TradeStatusUpdate",
     "TradeRead",
     "TradeDetailRead",
+    "ActiveTradeDTO",
+    "ActiveTradeTPLevelDTO",
+    "TradeHistoryItemDTO",
+    "PaginatedTradeHistoryDTO",
+    "TradeRiskDetailDTO",
+    "TradeOrderDetailDTO",
+    "TradeExecutionDetailDTO",
+    "TradeEventDetailDTO",
+    "TradeSummaryDetailDTO",
+    "TradeDetailDTO",
+    "CloseTradeRequest",
     # Order & Execution
     "OrderBase",
     "OrderCreate",
@@ -191,4 +271,23 @@ __all__ = [
     "BotLogBase",
     "BotLogCreate",
     "BotLogRead",
+    "BotStatusDTO",
+    "GenericActionResponse",
+    "BotSettingsDTO",
+    "BotSettingsUpdateRequest",
+    "TradingCredentialCreateRequest",
+    "PanicCloseRequest",
+    "PanicCloseResponseDTO",
+    "CredentialSaveResponseDTO",
+    "LogEntryDTO",
+    # User & Auth
+    "UserDTO",
+    "LoginRequest",
+    "LoginResponse",
+    "TokenRefreshRequest",
+    "UserCreateRequest",
+    "UserUpdatePasswordRequest",
+    # Analytics
+    "AnalyticsSummaryDTO",
+    "EquityPointDTO",
 ]

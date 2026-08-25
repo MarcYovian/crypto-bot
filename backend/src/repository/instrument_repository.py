@@ -1,8 +1,9 @@
 """Data-access repository for trading Instruments (symbol metadata and precision)."""
 
 from datetime import datetime
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Sequence
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import Instrument
 from src.schemas.master import InstrumentCreate, InstrumentUpdate
@@ -18,7 +19,7 @@ class InstrumentRepository(BaseRepository[Instrument, InstrumentCreate, Instrume
     async def get_by_symbol(
         self, symbol: str, exchange_id: Optional[int] = None
     ) -> Optional[Instrument]:
-        """Fetch instrument metadata by trading pair symbol.
+        """Fetch instrument metadata by trading pair symbol with eagerly loaded leverage brackets.
         
         Args:
             symbol: Trading pair, e.g. "BTCUSDT".
@@ -27,8 +28,10 @@ class InstrumentRepository(BaseRepository[Instrument, InstrumentCreate, Instrume
         Returns:
             Matching Instrument instance or None.
         """
-        stmt = select(Instrument).where(
-            func.upper(Instrument.symbol) == symbol.strip().upper()
+        stmt = (
+            select(Instrument)
+            .options(selectinload(Instrument.leverage_brackets))
+            .where(func.upper(Instrument.symbol) == symbol.strip().upper())
         )
         if exchange_id is not None:
             stmt = stmt.where(Instrument.exchange_id == exchange_id)
@@ -54,8 +57,31 @@ class InstrumentRepository(BaseRepository[Instrument, InstrumentCreate, Instrume
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_all_instruments_with_brackets(
+        self, exchange_id: Optional[int] = None
+    ) -> List[Instrument]:
+        """Fetch all active instruments with eagerly loaded leverage brackets.
+        
+        Args:
+            exchange_id: Optional exchange FK filter.
+            
+        Returns:
+            List of active Instrument instances with populated leverage_brackets relation.
+        """
+        stmt = (
+            select(Instrument)
+            .options(selectinload(Instrument.leverage_brackets))
+            .where(Instrument.is_active.is_(True))
+            .order_by(Instrument.symbol.asc())
+        )
+        if exchange_id is not None:
+            stmt = stmt.where(Instrument.exchange_id == exchange_id)
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def bulk_upsert_instruments(
-        self, instruments: List[Union[InstrumentCreate, Dict[str, Any]]]
+        self, instruments: Sequence[Union[InstrumentCreate, Dict[str, Any]]]
     ) -> int:
         """Insert or update instrument metadata synced from exchange info.
         

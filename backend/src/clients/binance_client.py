@@ -115,27 +115,51 @@ class BinanceRestClient:
             for symbol, market in self.client.markets.items():
                 # Filter active USDT linear futures contracts
                 if market.get("active") and market.get("linear") and market.get("quote") == "USDT":
-                    precision = market.get("precision", {})
-                    limits = market.get("limits", {})
-                    
-                    price_precision = precision.get("price")
-                    qty_precision = precision.get("amount")
-                    
-                    tick_size = limits.get("price", {}).get("min")
-                    step_size = limits.get("amount", {}).get("min")
-                    min_qty = limits.get("amount", {}).get("min")
-                    min_notional = limits.get("cost", {}).get("min")
+                    info = market.get("info", {})
+                    filters = {f.get("filterType"): f for f in info.get("filters", [])}
+                    price_filter = filters.get("PRICE_FILTER", {})
+                    lot_filter = filters.get("LOT_SIZE", {})
+                    min_notional_filter = filters.get("MIN_NOTIONAL", {})
+
+                    price_prec = info.get("pricePrecision") or market.get("precision", {}).get("price")
+                    qty_prec = info.get("quantityPrecision") or market.get("precision", {}).get("amount")
+
+                    price_limit_min = market.get("limits", {}).get("price", {}).get("min")
+                    amount_limit_min = market.get("limits", {}).get("amount", {}).get("min")
+
+                    tick_size_str = price_filter.get("tickSize") or str(price_limit_min or "0.01")
+                    step_size_str = lot_filter.get("stepSize") or str(amount_limit_min or "0.001")
+                    min_qty_str = lot_filter.get("minQty") or str(amount_limit_min or step_size_str)
+                    min_notional_str = min_notional_filter.get("notional") or str(market.get("limits", {}).get("cost", {}).get("min", "5.0"))
+
+                    tick_dec = Decimal(str(tick_size_str)) if tick_size_str and Decimal(str(tick_size_str)) > 0 else Decimal("0.01")
+                    step_dec = Decimal(str(step_size_str)) if step_size_str and Decimal(str(step_size_str)) > 0 else Decimal("0.001")
+                    min_qty_dec = Decimal(str(min_qty_str)) if min_qty_str and Decimal(str(min_qty_str)) > 0 else step_dec
+                    min_notional_dec = Decimal(str(min_notional_str)) if min_notional_str and Decimal(str(min_notional_str)) > 0 else Decimal("5.0")
+
+                    # Calculate decimal places safely
+                    if price_prec is not None:
+                        price_precision = int(price_prec)
+                    else:
+                        price_exp = tick_dec.normalize().as_tuple().exponent
+                        price_precision = abs(price_exp) if isinstance(price_exp, int) else 2
+
+                    if qty_prec is not None:
+                        qty_precision = int(qty_prec)
+                    else:
+                        qty_exp = step_dec.normalize().as_tuple().exponent
+                        qty_precision = abs(qty_exp) if isinstance(qty_exp, int) else 3
 
                     results.append({
                         "symbol": market.get("id", symbol.replace("/", "").replace(":USDT", "")),
                         "base_asset": market.get("base"),
                         "quote_asset": market.get("quote"),
-                        "price_precision": int(price_precision) if price_precision is not None else 2,
-                        "qty_precision": int(qty_precision) if qty_precision is not None else 3,
-                        "tick_size": Decimal(str(tick_size)) if tick_size is not None else Decimal("0.01"),
-                        "step_size": Decimal(str(step_size)) if step_size is not None else Decimal("0.001"),
-                        "min_qty": Decimal(str(min_qty)) if min_qty is not None else Decimal("0.001"),
-                        "min_notional": Decimal(str(min_notional)) if min_notional is not None else Decimal("5.0"),
+                        "price_precision": price_precision,
+                        "qty_precision": qty_precision,
+                        "tick_size": tick_dec,
+                        "step_size": step_dec,
+                        "min_qty": min_qty_dec,
+                        "min_notional": min_notional_dec,
                         "is_active": True,
                     })
 
@@ -165,14 +189,17 @@ class BinanceRestClient:
                 raw_data = [raw_data]
 
             results: List[Dict[str, Any]] = []
+            max_safe_cap = Decimal("9999999999")  # Prevent NUMERIC(18, 8) overflow on infinity caps
             for item in raw_data:
                 sym = item.get("symbol", "").replace("/", "").replace(":USDT", "").upper()
                 brackets_parsed = []
                 for b in item.get("brackets", []):
+                    raw_cap = Decimal(str(b.get("notionalCap", 0)))
+                    capped_val = min(raw_cap, max_safe_cap)
                     brackets_parsed.append({
                         "bracket": int(b.get("bracket", 1)),
                         "initial_leverage": int(b.get("initialLeverage", 20)),
-                        "notional_cap": Decimal(str(b.get("notionalCap", 0))),
+                        "notional_cap": capped_val,
                         "notional_floor": Decimal(str(b.get("notionalFloor", 0))),
                         "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio", "0.01"))),
                         "cum": Decimal(str(b.get("cum", "0"))),

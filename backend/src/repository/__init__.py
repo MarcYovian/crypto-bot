@@ -20,6 +20,7 @@ from src.repository.trade_event_repository import TradeEventRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.repository.bot_setting_repository import BotSettingRepository
 from src.repository.bot_log_repository import BotLogRepository
+from src.repository.user_repository import UserRepository
 
 __all__ = [
     "BaseRepository",
@@ -42,4 +43,6 @@ __all__ = [
     "TradeSummaryRepository",
     "BotSettingRepository",
     "BotLogRepository",
+    "UserRepository",
 ]
+

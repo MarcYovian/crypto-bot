@@ -623,7 +623,7 @@ class TelegramService:
                         self.binance_client.reconfigure(api_key=api_key, secret_key=secret_key, testnet=is_testnet)
                     else:
                         self.binance_client.api_key = api_key
-                        self.binance_client.api_secret = secret_key
+                        self.binance_client.secret_key = secret_key
                         self.binance_client.testnet = is_testnet
 
                 masked_key = f"{api_key[:4]}****{api_key[-4:]}"

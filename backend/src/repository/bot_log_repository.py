@@ -84,6 +84,37 @@ class BotLogRepository(BaseRepository[BotLog, BotLogCreate, BaseSchema]):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def query_logs(
+        self,
+        level: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[BotLog]:
+        """Query audit logs with optional level filter and trace_id correlation search.
+
+        Args:
+            level: Optional severity level (e.g. DEBUG, INFO, WARNING, ERROR, CRITICAL).
+            trace_id: Optional correlation trace ID (e.g. sig-a1b2c3d4).
+            limit: Maximum log rows to retrieve (capped between 1 and 1000).
+
+        Returns:
+            List of BotLog instances matching the search criteria.
+        """
+        capped_limit = min(max(1, limit), 1000)
+        stmt = select(BotLog).order_by(BotLog.created_at.desc(), BotLog.id.desc()).limit(capped_limit)
+
+        if level is not None and level.strip():
+            stmt = stmt.where(func.upper(BotLog.level) == level.strip().upper())
+        if trace_id is not None and trace_id.strip():
+            tid = trace_id.strip()
+            stmt = stmt.where(
+                (BotLog.context_json.like(f"%{tid}%")) | (BotLog.message.like(f"%{tid}%"))
+            )
+
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+
     async def get_error_logs(
         self,
         limit: int = 50,
@@ -127,4 +158,4 @@ class BotLogRepository(BaseRepository[BotLog, BotLogCreate, BaseSchema]):
         stmt = delete(BotLog).where(BotLog.created_at < cutoff)
         result = await self.session.execute(stmt)
         await self.session.commit()
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0) or 0)

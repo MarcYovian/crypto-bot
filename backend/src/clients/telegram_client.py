@@ -424,3 +424,7 @@ class TelegramChannelListener:
     async def stop(self) -> None:
         """Stop listening and disconnect session."""
         self.is_running = False
+
+    async def disconnect(self) -> None:
+        """Alias for stopping and disconnecting channel listener."""
+        await self.stop()

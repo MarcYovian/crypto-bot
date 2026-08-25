@@ -33,3 +33,18 @@ class PaginatedResponse(BaseSchema, Generic[T]):
     page: int = Field(default=1, ge=1, description="Current page number")
     page_size: int = Field(default=50, ge=1, le=100, description="Number of items per page")
     total_pages: int = Field(default=1, ge=1, description="Total calculated pages")
+
+
+class GenericActionResponse(BaseSchema):
+    """Standard generic operational outcome response."""
+
+    success: bool = Field(default=True, description="Whether the operation succeeded")
+    message: str = Field(..., description="Human-readable result summary")
+
+
+class ErrorResponse(BaseSchema):
+    """Standard structured error response schema."""
+
+    detail: str = Field(..., description="Detailed description of the error")
+    code: str = Field(..., description="Application specific error code identifier")
+

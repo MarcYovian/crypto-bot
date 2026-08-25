@@ -6,12 +6,12 @@ Membangun lapisan klien eksternal **Binance Futures API** (`BinanceClient`) meng
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/domain/exceptions/base.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/base.py) *(Root Domain Exception)*
-* `[NEW]` [`backend/src/domain/exceptions/exchange.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/exchange.py) *(Exchange & Binance Specific Custom Exceptions)*
-* `[NEW]` [`backend/src/domain/exceptions/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/domain/exceptions/__init__.py) *(Central Exception Re-exports)*
-* `[NEW]` [`backend/src/clients/binance_client.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/clients/binance_client.py) *(REST & WebSocket Client)*
-* `[NEW]` [`backend/src/clients/__init__.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/clients/__init__.py)
-* `[NEW]` [`backend/tests/clients/test_binance_client.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/clients/test_binance_client.py)
+* `[NEW]` [`backend/src/domain/exceptions/base.py`](../backend/src/domain/exceptions/base.py) *(Root Domain Exception)*
+* `[NEW]` [`backend/src/domain/exceptions/exchange.py`](../backend/src/domain/exceptions/exchange.py) *(Exchange & Binance Specific Custom Exceptions)*
+* `[NEW]` [`backend/src/domain/exceptions/__init__.py`](../backend/src/domain/exceptions/__init__.py) *(Central Exception Re-exports)*
+* `[NEW]` [`backend/src/clients/binance_client.py`](../backend/src/clients/binance_client.py) *(REST & WebSocket Client)*
+* `[NEW]` [`backend/src/clients/__init__.py`](../backend/src/clients/__init__.py)
+* `[NEW]` [`backend/tests/clients/test_binance_client.py`](../backend/tests/clients/test_binance_client.py)
 
 ---
 

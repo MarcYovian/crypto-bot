@@ -105,6 +105,7 @@ class SignalParserService:
         if not is_valid and strict:
             raise InvalidSignalDataError(validation_err or "Invalid price logic", raw_text=raw_text)
 
+        assert symbol is not None and side is not None
         confidence = self._compute_confidence(symbol, side, entry_min, sl_price, tp_targets, leverage)
 
         return ParsedSignalDTO(

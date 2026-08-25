@@ -6,9 +6,9 @@ Membangun repository terpisah untuk model Pasangan Perdagangan (`Instrument`) da
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/instrument_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/instrument_repository.py)
-* `[NEW]` [`backend/src/repository/watchlist_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/watchlist_repository.py)
-* `[NEW]` [`backend/tests/repository/test_instrument_watchlist_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_instrument_watchlist_repository.py)
+* `[NEW]` [`backend/src/repository/instrument_repository.py`](../backend/src/repository/instrument_repository.py)
+* `[NEW]` [`backend/src/repository/watchlist_repository.py`](../backend/src/repository/watchlist_repository.py)
+* `[NEW]` [`backend/tests/repository/test_instrument_watchlist_repository.py`](../backend/tests/repository/test_instrument_watchlist_repository.py)
 
 ---
 

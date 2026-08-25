@@ -6,9 +6,9 @@ Membangun repository terpisah untuk model Akun Trading (`TradingAccount`) dan Kr
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/trading_account_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trading_account_repository.py)
-* `[NEW]` [`backend/src/repository/trading_credential_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/trading_credential_repository.py)
-* `[NEW]` [`backend/tests/repository/test_account_credential_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_account_credential_repository.py)
+* `[NEW]` [`backend/src/repository/trading_account_repository.py`](../backend/src/repository/trading_account_repository.py)
+* `[NEW]` [`backend/src/repository/trading_credential_repository.py`](../backend/src/repository/trading_credential_repository.py)
+* `[NEW]` [`backend/tests/repository/test_account_credential_repository.py`](../backend/tests/repository/test_account_credential_repository.py)
 
 ---
 

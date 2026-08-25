@@ -1,7 +1,7 @@
 """Data-access repository for TradingSignal entity."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import TradingSignal
@@ -140,3 +140,53 @@ class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, Tradin
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_signals_paginated(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+    ) -> Tuple[int, List[TradingSignal]]:
+        """Fetch signals feed with optional status filter and pagination.
+
+        Args:
+            page: Current page (1-based).
+            page_size: Number of items per page.
+            status: Optional lifecycle or OpenAPI status filter (e.g. RECEIVED, EXECUTED, PENDING, PROCESSED).
+
+        Returns:
+            Tuple of (total_count, list of TradingSignal models with eager-loaded instrument & provider).
+        """
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(TradingSignal)
+            .options(
+                selectinload(TradingSignal.instrument),
+                selectinload(TradingSignal.provider),
+            )
+        )
+        count_stmt = select(func.count(TradingSignal.id))
+
+        if status:
+            clean_status = status.strip().upper()
+            if clean_status == "PENDING":
+                stmt = stmt.where(TradingSignal.status.in_(["RECEIVED", "PENDING"]))
+                count_stmt = count_stmt.where(TradingSignal.status.in_(["RECEIVED", "PENDING"]))
+            elif clean_status == "PROCESSED":
+                stmt = stmt.where(TradingSignal.status.in_(["EXECUTED", "PROCESSED"]))
+                count_stmt = count_stmt.where(TradingSignal.status.in_(["EXECUTED", "PROCESSED"]))
+            else:
+                stmt = stmt.where(TradingSignal.status == clean_status)
+                count_stmt = count_stmt.where(TradingSignal.status == clean_status)
+
+        total_res = await self.session.execute(count_stmt)
+        total_count: int = total_res.scalar_one() or 0
+
+        offset = (page - 1) * page_size
+        stmt = stmt.order_by(TradingSignal.created_at.desc()).offset(offset).limit(page_size)
+
+        signals_res = await self.session.execute(stmt)
+        signals = list(signals_res.scalars().all())
+
+        return total_count, signals

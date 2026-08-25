@@ -6,8 +6,8 @@ Membangun `ExchangeRepository` terdedikasi untuk entitas master bursa `Exchange`
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[NEW]` [`backend/src/repository/exchange_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/src/repository/exchange_repository.py)
-* `[NEW]` [`backend/tests/repository/test_exchange_repository.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/repository/test_exchange_repository.py)
+* `[NEW]` [`backend/src/repository/exchange_repository.py`](../backend/src/repository/exchange_repository.py)
+* `[NEW]` [`backend/tests/repository/test_exchange_repository.py`](../backend/tests/repository/test_exchange_repository.py)
 
 ---
 

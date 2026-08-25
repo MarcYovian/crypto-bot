@@ -1,7 +1,8 @@
 """Pydantic schemas for master and configuration entities."""
 
+from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 from pydantic import Field, field_validator
 from src.schemas.common import BaseSchema, TimestampMixin
 
@@ -326,3 +327,112 @@ class WatchlistRead(WatchlistBase, TimestampMixin):
     """Response schema for Watchlist."""
     id: int
     instrument: Optional[InstrumentRead] = None
+
+
+class WatchlistItemDTO(BaseSchema):
+    """Schema representing an instrument item in the active watchlist."""
+    id: int = Field(..., description="Watchlist entry unique ID")
+    symbol: str = Field(..., description="Trading pair symbol, e.g. BTCUSDT")
+    enabled: bool = Field(..., description="Active trading enabled status")
+    max_leverage: int = Field(default=125, description="Maximum leverage supported")
+    tick_size: float = Field(..., description="Minimum price movement step")
+    min_qty: float = Field(..., description="Minimum lot order quantity")
+
+
+class WatchlistToggleRequest(BaseSchema):
+    """Payload for enabling or disabling a watchlist trading pair."""
+    symbol: str = Field(..., min_length=2, max_length=30, description="Trading pair symbol, e.g. BTCUSDT")
+    enabled: bool = Field(..., description="Target enabled status")
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class LeverageBracketDTO(BaseSchema):
+    """Tier bracket information for frontend display."""
+    bracket: int = Field(..., description="Tier bracket number")
+    initial_leverage: int = Field(..., description="Max allowable leverage for this bracket")
+    notional_cap: float = Field(..., description="Max notional value in USDT")
+    notional_floor: float = Field(default=0.0, description="Min notional value in USDT")
+    maint_margin_ratio: float = Field(..., description="Maintenance margin ratio (MMR)")
+    cum: float = Field(default=0.0, description="Cumulative deduction factor")
+
+
+class InstrumentDTO(BaseSchema):
+    """Schema representing Binance Futures instrument specification and precision."""
+    symbol: str = Field(..., description="Trading pair symbol")
+    base_asset: str = Field(..., description="Base crypto asset, e.g. BTC")
+    quote_asset: str = Field(..., description="Quote asset, e.g. USDT")
+    price_precision: int = Field(..., description="Price decimal precision")
+    qty_precision: int = Field(..., description="Quantity decimal precision")
+    tick_size: float = Field(..., description="Minimum price step")
+    step_size: float = Field(..., description="Minimum quantity step")
+    min_notional: float = Field(..., description="Minimum order notional value")
+    max_leverage: int = Field(default=125, description="Maximum leverage supported")
+    brackets: Optional[List[LeverageBracketDTO]] = Field(default=None, description="Leverage and notional brackets")
+
+
+class SyncInstrumentsResponseDTO(BaseSchema):
+    """Response payload after synchronizing instruments from exchange."""
+    synced_instruments: int = Field(..., description="Total synchronized instruments count")
+    synced_brackets: int = Field(..., description="Total synchronized leverage brackets count")
+    timestamp: datetime = Field(..., description="Synchronization timestamp")
+
+
+# =====================================================================
+# 9. SIGNAL PROVIDER & STRATEGY DASHBOARD DTOS
+# =====================================================================
+
+class SignalProviderDTO(BaseSchema):
+    """Schema representing a configured signal provider channel."""
+    id: int = Field(..., description="Unique provider ID")
+    name: str = Field(..., description="Provider channel / source name")
+    channel_id: Optional[str] = Field(default=None, description="Telegram channel identifier or source type")
+    is_active: bool = Field(default=True, description="Active status")
+    confidence_weight: float = Field(default=1.0, description="Confidence weighting multiplier")
+
+
+class SignalProviderCreateRequest(BaseSchema):
+    """Payload for adding a new Telegram signal provider channel."""
+    name: str = Field(..., min_length=2, max_length=100, description="Provider channel / source name")
+    channel_id: str = Field(..., min_length=1, max_length=100, description="Telegram channel or chat ID")
+    confidence_weight: float = Field(default=1.0, ge=0.1, le=2.0, description="Confidence multiplier")
+
+
+class ProviderPerformanceDTO(BaseSchema):
+    """Aggregated financial and execution performance metrics for a specific signal provider."""
+    provider_id: int = Field(..., description="Unique provider ID")
+    provider_name: str = Field(..., description="Provider channel / source name")
+    total_signals: int = Field(default=0, description="Total signals received from this provider")
+    executed_trades: int = Field(default=0, description="Total trades executed from this provider's signals")
+    win_rate: float = Field(default=0.0, description="Winning trades percentage (0.0 - 100.0%)")
+    total_net_pnl_usdt: float = Field(default=0.0, description="Total realized net PnL in USDT")
+
+
+class TPAllocationDTO(BaseSchema):
+    """Take profit level allocation ratio."""
+    tp_level: int = Field(..., description="TP stage level (1, 2, 3...)")
+    percentage: float = Field(..., description="Position percentage closed at this level")
+
+
+class StrategyDTO(BaseSchema):
+    """Schema representing trading strategy and TP scaling rules."""
+    id: int = Field(..., description="Unique strategy ID")
+    name: str = Field(..., description="Strategy name identifier")
+    tp_allocations: List[TPAllocationDTO] = Field(default_factory=list, description="Take profit allocation distribution")
+    bep_trigger_level: int = Field(default=1, description="TP level that triggers Stop Loss move to Break-Even")
+    trailing_trigger_level: int = Field(default=2, description="TP level that triggers Trailing Stop Loss")
+    is_active: bool = Field(default=True, description="Active status flag")
+
+
+class StrategyUpdateRequest(BaseSchema):
+    """Payload for updating strategy TP allocation ratios and trailing rules."""
+    tp1_percent: Optional[float] = Field(default=None, ge=0, le=100, description="TP1 target allocation percentage")
+    tp2_percent: Optional[float] = Field(default=None, ge=0, le=100, description="TP2 target allocation percentage")
+    tp3_percent: Optional[float] = Field(default=None, ge=0, le=100, description="TP3 target allocation percentage")
+    bep_trigger_level: Optional[int] = Field(default=None, ge=1, le=5, description="TP level for Break-Even trigger")
+    trailing_trigger_level: Optional[int] = Field(default=None, ge=1, le=5, description="TP level for Trailing trigger")
+
+

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
+!*.example
 
 # === Data & Log Directories (Docker Mounts) ===
 data/
@@ -45,6 +47,11 @@ dist/
 build/
 *.egg-info/
 
+# === Node & Frontend ===
+node_modules/
+frontend/dist/
+.eslintcache
+
 # === Testing, Linting & Coverage ===
 .coverage
 .coverage.*
@@ -56,3 +63,4 @@ backend/cover_report/
 htmlcov/
 coverage.xml
 *.cover
+

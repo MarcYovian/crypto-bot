@@ -27,6 +27,7 @@ from src.domain.exceptions.risk import (
     ZeroStopDistanceError,
     MaxRiskExceededError,
     InsufficientMarginRiskError,
+    InvalidSignalGeometryError,
 )
 from src.domain.exceptions.trade import (
     TradeExecutionError,
@@ -35,6 +36,26 @@ from src.domain.exceptions.trade import (
     PairAlreadyActiveError,
     SymbolNotWhitelistedError,
     DailyRiskLimitReachedError,
+)
+from src.domain.exceptions.auth import (
+    AuthError,
+    InvalidCredentialsError,
+    AccountDisabledError,
+    InvalidRefreshTokenError,
+    UserNotFoundError,
+)
+from src.domain.exceptions.provider import (
+    ProviderNotFoundError,
+    DuplicateProviderError,
+    StrategyNotFoundError,
+    InvalidStrategyConfigError,
+)
+from src.domain.exceptions.system import (
+    BotOperationError,
+    PanicConfirmationRequiredError,
+    InvalidSettingsValueError,
+    InvalidDateRangeError,
+    InvalidLogLevelError,
 )
 
 __all__ = [
@@ -58,10 +79,25 @@ __all__ = [
     "ZeroStopDistanceError",
     "MaxRiskExceededError",
     "InsufficientMarginRiskError",
+    "InvalidSignalGeometryError",
     "TradeExecutionError",
     "TradeNotFoundError",
     "InvalidTradeStateError",
     "PairAlreadyActiveError",
     "SymbolNotWhitelistedError",
     "DailyRiskLimitReachedError",
+    "AuthError",
+    "InvalidCredentialsError",
+    "AccountDisabledError",
+    "InvalidRefreshTokenError",
+    "UserNotFoundError",
+    "ProviderNotFoundError",
+    "DuplicateProviderError",
+    "StrategyNotFoundError",
+    "InvalidStrategyConfigError",
+    "BotOperationError",
+    "PanicConfirmationRequiredError",
+    "InvalidSettingsValueError",
+    "InvalidDateRangeError",
+    "InvalidLogLevelError",
 ]

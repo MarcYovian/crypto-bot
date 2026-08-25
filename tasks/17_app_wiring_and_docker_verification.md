@@ -1,15 +1,15 @@
 # Task 17: Application Wiring, Dependency Injection & Docker Verification (Expanded)
 
 ## 1. Deskripsi Task
-Menggabungkan seluruh komponen arsitektur modular baru (**Database ➔ Repositories ➔ Clients ➔ Services**) ke dalam entry point utama [`backend/main.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/main.py) menggunakan prinsip *Clean Dependency Injection*, menangani *Graceful Shutdown* (`SIGINT`/`SIGTERM`), membangun pengujian integrasi E2E komprehensif (*End-to-End Trade Lifecycle*), serta verifikasi containerisasi Docker.
+Menggabungkan seluruh komponen arsitektur modular baru (**Database ➔ Repositories ➔ Clients ➔ Services**) ke dalam entry point utama [`backend/main.py`](../backend/main.py) menggunakan prinsip *Clean Dependency Injection*, menangani *Graceful Shutdown* (`SIGINT`/`SIGTERM`), membangun pengujian integrasi E2E komprehensif (*End-to-End Trade Lifecycle*), serta verifikasi containerisasi Docker.
 
 ---
 
 ## 2. File yang Dibuat / Diubah
-* `[MODIFY]` [`backend/main.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/main.py) *(Main Application Entry Point & Clean DI Container)*
-* `[MODIFY]` [`Dockerfile`](file:///home/rodex/Documents/cell/projects/crypto-bot/Dockerfile) *(Update Python 3.12 & optimize build)*
-* `[MODIFY]` [`docker-compose.yml`](file:///home/rodex/Documents/cell/projects/crypto-bot/docker-compose.yml) *(Configuration & healthchecks)*
-* `[NEW]` [`backend/tests/test_e2e_integration.py`](file:///home/rodex/Documents/cell/projects/crypto-bot/backend/tests/test_e2e_integration.py) *(Full E2E Trade Lifecycle Suite)*
+* `[MODIFY]` [`backend/main.py`](../backend/main.py) *(Main Application Entry Point & Clean DI Container)*
+* `[MODIFY]` [`Dockerfile`](../Dockerfile) *(Update Python 3.12 & optimize build)*
+* `[MODIFY]` [`docker-compose.yml`](../docker-compose.yml) *(Configuration & healthchecks)*
+* `[NEW]` [`backend/tests/test_e2e_integration.py`](../backend/tests/test_e2e_integration.py) *(Full E2E Trade Lifecycle Suite)*
 
 ---
 

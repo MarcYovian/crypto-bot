@@ -1,6 +1,6 @@
 """Data-access repository for Trade Summaries and performance aggregation."""
 
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from sqlalchemy import select, func, case
@@ -68,9 +68,11 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
             stmt = stmt.join(Trade, TradeSummary.trade_id == Trade.id).where(Trade.account_id == account_id)
 
         if start_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at >= start_date)
+            clean_start = start_date.replace(tzinfo=None) if getattr(start_date, "tzinfo", None) else start_date
+            stmt = stmt.where(TradeSummary.closed_at >= clean_start)
         if end_date is not None:
-            stmt = stmt.where(TradeSummary.closed_at <= end_date)
+            clean_end = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
+            stmt = stmt.where(TradeSummary.closed_at <= clean_end)
 
         result = await self.session.execute(stmt)
         row = result.mappings().one()
@@ -146,3 +148,54 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_daily_pnl_map(
+        self,
+        account_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[date, float]:
+        """Aggregate net PnL grouped by closed_at date in a single SQL query (O(1) roundtrip).
+
+        Args:
+            account_id: Optional account FK filter.
+            start_date: Optional start datetime filter.
+            end_date: Optional end datetime filter.
+
+        Returns:
+            Dictionary of {date_object: float_net_pnl}.
+        """
+        stmt = select(
+            func.date(TradeSummary.closed_at).label("trade_date"),
+            func.sum(TradeSummary.net_pnl).label("total_net_pnl"),
+        )
+        if account_id is not None:
+            stmt = stmt.join(Trade, TradeSummary.trade_id == Trade.id).where(Trade.account_id == account_id)
+
+        if start_date is not None:
+            clean_start = start_date.replace(tzinfo=None) if getattr(start_date, "tzinfo", None) else start_date
+            stmt = stmt.where(TradeSummary.closed_at >= clean_start)
+        if end_date is not None:
+            clean_end = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
+            stmt = stmt.where(TradeSummary.closed_at <= clean_end)
+
+        stmt = stmt.group_by(func.date(TradeSummary.closed_at))
+
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        pnl_map: Dict[date, float] = {}
+        for row in rows:
+            raw_date = row[0]
+            val = float(row[1] or 0.0)
+            if isinstance(raw_date, str):
+                d = datetime.strptime(raw_date, "%Y-%m-%d").date()
+            elif isinstance(raw_date, datetime):
+                d = raw_date.date()
+            elif isinstance(raw_date, date):
+                d = raw_date
+            else:
+                continue
+            pnl_map[d] = val
+
+        return pnl_map

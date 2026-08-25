@@ -1,14 +1,18 @@
-"""Main Application Entry Point for the Semi-Automated Binance Futures Trading Bot.
+"""Main Application Entry Point for the Semi-Automated Binance Futures Trading Bot & Web Dashboard API.
 
-Handles Clean Architecture Dependency Injection, background async runner orchestration,
-and graceful shutdown handling.
+Integrates FastAPI REST & WebSocket API, Telegram Polling Bot, Binance Stream Listener,
+and APScheduler Background Cron Jobs into a unified Lifespan management architecture.
 """
 
 import asyncio
 import logging
 import signal
 import sys
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import Optional, List, AsyncIterator
+
+import uvicorn
+from fastapi import FastAPI
 
 from config.settings import settings
 from src.database.connection import init_db, AsyncSessionLocal, engine
@@ -31,6 +35,8 @@ from src.repository.trade_event_repository import TradeEventRepository
 from src.repository.trade_summary_repository import TradeSummaryRepository
 from src.repository.bot_log_repository import BotLogRepository
 from src.repository.bot_setting_repository import BotSettingRepository
+from src.repository.user_repository import UserRepository
+from src.utils.security import get_password_hash
 
 from src.clients.binance_client import BinanceRestClient, BinanceWebSocketClient
 from src.clients.telegram_client import TelegramNotifierClient, TelegramChannelListener
@@ -43,6 +49,7 @@ from src.services.position_manager import PositionManager
 from src.services.scheduler_service import SchedulerService
 from src.services.telegram_service import TelegramService
 from src.services.instrument_service import InstrumentService
+from src.api.app import create_app
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -60,7 +67,7 @@ logger = logging.getLogger("MAIN_APP")
 class ApplicationContainer:
     """Dependency Injection Container and Runtime Lifecycle Manager."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.running = False
         self.session_maker = AsyncSessionLocal
 
@@ -72,27 +79,33 @@ class ApplicationContainer:
 
         # Business Services
         self.precision_service: Optional[PrecisionFilterService] = None
-        self.signal_parser: Optional[SignalParserService] = None
-        self.risk_calculator: Optional[RiskCalculatorService] = None
+        self.signal_parser: SignalParserService = SignalParserService()
+        self.risk_calculator: RiskCalculatorService = RiskCalculatorService()
         self.trade_service: Optional[TradeService] = None
         self.position_manager: Optional[PositionManager] = None
         self.scheduler: Optional[SchedulerService] = None
         self.telegram_service: Optional[TelegramService] = None
 
         # Async Tasks
-        self.tasks: list[asyncio.Task] = []
+        self.tasks: List[asyncio.Task] = []
 
     async def initialize(self) -> None:
-        """Initialize database, third-party clients, repositories, and services."""
-        logger.info("Initializing Database schema and connection pool...")
-        await init_db()
-
+        """Initialize database credentials, third-party clients, repositories, and domain services."""
         # 1. Load active API credentials and environment strictly from Database
         active_api_key: Optional[str] = None
         active_api_secret: Optional[str] = None
         active_testnet: bool = True
 
         async with self.session_maker() as init_session:
+            # 0. Ensure default admin user is seeded
+            user_repo = UserRepository(init_session)
+            default_user = getattr(settings, "DEFAULT_ADMIN_USERNAME", "admin")
+            default_pass = getattr(settings, "DEFAULT_ADMIN_PASSWORD", "AdminPassword123!")
+            await user_repo.ensure_default_admin(
+                default_username=default_user,
+                default_password_hash=get_password_hash(default_pass),
+            )
+
             acc_repo = TradingAccountRepository(init_session)
             cred_repo = TradingCredentialRepository(init_session)
 
@@ -115,8 +128,7 @@ class ApplicationContainer:
                         f"({active_acc.environment}), Key: {active_api_key[:4]}****{active_api_key[-4:]}"
                     )
             else:
-                logger.info("No active Binance credentials in Database. Use /setup_account in Telegram to connect.")
-
+                logger.info("No active Binance credentials in Database. Use /setup_account in Telegram or Web UI.")
 
         # 2. External Clients
         self.binance_client = BinanceRestClient(
@@ -145,12 +157,12 @@ class ApplicationContainer:
         self.signal_parser = SignalParserService()
         self.risk_calculator = RiskCalculatorService()
 
-        logger.info("Application Dependency Injection initialized successfully.")
+        logger.info("Application Container dependencies initialized successfully.")
 
-    async def start(self) -> None:
-        """Start all background runners: Scheduler, WebSocket, Telegram polling."""
+    async def start_background_runners(self) -> None:
+        """Start background runners: APScheduler, WebSocket Stream, and Telegram Polling."""
         self.running = True
-        logger.info("Starting Crypto Trading Bot runtime runners...")
+        logger.info("Starting background services (Scheduler, Telegram, Binance Stream)...")
 
         async with self.session_maker() as session:
             # Repositories for scoped services
@@ -169,8 +181,9 @@ class ApplicationContainer:
             signal_prov_repo = SignalProviderRepository(session)
             risk_prof_repo = RiskProfileRepository(session)
             acc_repo = TradingAccountRepository(session)
-
             inst_bracket_repo = InstrumentLeverageBracketRepository(session)
+            ex_repo = ExchangeRepository(session)
+            cred_repo = TradingCredentialRepository(session)
 
             self.trade_service = TradeService(
                 instrument_repo=inst_repo,
@@ -196,11 +209,6 @@ class ApplicationContainer:
                 binance_client=self.binance_client,
                 telegram_client=self.telegram_client,
             )
-
-            ex_repo = ExchangeRepository(session)
-            cred_repo = TradingCredentialRepository(session)
-
-            inst_bracket_repo = InstrumentLeverageBracketRepository(session)
 
             inst_service = InstrumentService(
                 instrument_repo=inst_repo,
@@ -252,7 +260,7 @@ class ApplicationContainer:
             )
 
             # 1. Register Telegram UI Command Menu
-            if self.telegram_client:
+            if self.telegram_client and settings.TELEGRAM_BOT_TOKEN:
                 try:
                     await self.telegram_client.set_my_commands()
                     logger.info("Telegram UI Command menu synchronized successfully.")
@@ -260,10 +268,11 @@ class ApplicationContainer:
                     logger.warning(f"Could not auto-register Telegram commands: {e}")
 
             # 2. Start APScheduler Background Jobs
-            self.scheduler.start()
-            logger.info("APScheduler background jobs active (7 maintenance jobs).")
+            if self.scheduler:
+                self.scheduler.start()
+                logger.info("APScheduler background jobs active (7 maintenance jobs).")
 
-            # 2. WebSocket listener callback wiring
+            # 3. WebSocket listener callback wiring (Binance user data stream)
             async def on_order_fill_event(fill_dto):
                 async with self.session_maker() as fill_session:
                     pm = PositionManager(
@@ -278,7 +287,14 @@ class ApplicationContainer:
                     )
                     await pm.handle_order_fill(fill_dto)
 
-            # 3. Telegram Polling dispatcher
+            if self.binance_ws and self.binance_ws.api_key:
+                ws_task = asyncio.create_task(
+                    self.binance_ws.watch_orders_stream(callback_coro=on_order_fill_event)
+                )
+                self.tasks.append(ws_task)
+                logger.info("Binance User Data Stream WebSocket listener active.")
+
+            # 4. Telegram Polling dispatcher
             async def on_tg_message(msg: dict):
                 text = msg.get("text", "")
                 chat_id = msg.get("chat", {}).get("id", 1)
@@ -287,7 +303,7 @@ class ApplicationContainer:
                     return
 
                 async with self.session_maker() as sig_session:
-                    inst_serv = InstrumentService(
+                    inst_s = InstrumentService(
                         instrument_repo=InstrumentRepository(sig_session),
                         exchange_repo=ExchangeRepository(sig_session),
                         watchlist_repo=WatchlistRepository(sig_session),
@@ -321,7 +337,7 @@ class ApplicationContainer:
                         bot_log_repo=BotLogRepository(sig_session),
                         bot_setting_repo=BotSettingRepository(sig_session),
                         signal_provider_repo=SignalProviderRepository(sig_session),
-                        instrument_service=inst_serv,
+                        instrument_service=inst_s,
                         exchange_repo=ExchangeRepository(sig_session),
                         trading_account_repo=TradingAccountRepository(sig_session),
                         trading_credential_repo=TradingCredentialRepository(sig_session),
@@ -330,7 +346,6 @@ class ApplicationContainer:
                         telegram_client=self.telegram_client,
                     )
                     reply = await t_serv.handle_user_message(raw_text=text, chat_id=chat_id, message_id=message_id)
-                    # Commands that already sent their own reply_markup with buttons
                     if text.strip().lower() in ("/setup_account", "/account_setup", "/set_credentials"):
                         return
                     if reply and isinstance(reply, str) and self.telegram_client:
@@ -353,7 +368,7 @@ class ApplicationContainer:
                         pass
 
                 async with self.session_maker() as cb_session:
-                    inst_serv = InstrumentService(
+                    inst_s = InstrumentService(
                         instrument_repo=InstrumentRepository(cb_session),
                         exchange_repo=ExchangeRepository(cb_session),
                         watchlist_repo=WatchlistRepository(cb_session),
@@ -387,7 +402,7 @@ class ApplicationContainer:
                         bot_log_repo=BotLogRepository(cb_session),
                         bot_setting_repo=BotSettingRepository(cb_session),
                         signal_provider_repo=SignalProviderRepository(cb_session),
-                        instrument_service=inst_serv,
+                        instrument_service=inst_s,
                         exchange_repo=ExchangeRepository(cb_session),
                         trading_account_repo=TradingAccountRepository(cb_session),
                         trading_credential_repo=TradingCredentialRepository(cb_session),
@@ -401,7 +416,7 @@ class ApplicationContainer:
                         chat_id=chat_id,
                     )
 
-            if self.telegram_client:
+            if self.telegram_client and settings.TELEGRAM_BOT_TOKEN:
                 tg_task = asyncio.create_task(
                     self.telegram_client.start_polling(
                         on_message_coro=on_tg_message,
@@ -411,11 +426,7 @@ class ApplicationContainer:
                 self.tasks.append(tg_task)
                 logger.info("Telegram interactive bot polling task active.")
 
-            logger.info("🚀 Semi-Automated Crypto Bot fully online and listening for signals!")
-
-            # Main heartbeat & keep-alive loop
-            while self.running:
-                await asyncio.sleep(1)
+            logger.info("🚀 Semi-Automated Crypto Bot services fully initialized.")
 
     async def shutdown(self) -> None:
         """Gracefully terminate background runners, close client sockets and database engine."""
@@ -470,35 +481,42 @@ class ApplicationContainer:
 container = ApplicationContainer()
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Unified FastAPI Lifespan Context Manager.
+
+    Coordinates database schema migration, container initialization,
+    background runner orchestration, and graceful shutdown.
+    """
+    logger.info("Starting up FastAPI application lifespan context...")
+    try:
+        await init_db()
+        await container.initialize()
+        await container.start_background_runners()
+    except Exception as e:
+        logger.error(f"Error during application startup initialization: {e}")
+
+    yield
+
+    logger.info("Shutting down FastAPI application lifespan context...")
+    await container.shutdown()
+
+
+# Instantiate FastAPI app with lifespan manager
+app = create_app(lifespan=lifespan)
+
+
 def handle_exit_signal(sig, frame):
     """Signal handler for SIGINT and SIGTERM."""
     logger.info(f"Received OS interrupt signal ({sig}). Requesting shutdown...")
     asyncio.create_task(container.shutdown())
 
 
-async def main():
-    """Main entry point."""
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(container.shutdown()))
-        except NotImplementedError:
-            # Fallback for systems without add_signal_handler support (e.g. Windows)
-            signal.signal(sig, handle_exit_signal)
-
-    try:
-        await container.initialize()
-        await container.start()
-    except asyncio.CancelledError:
-        logger.info("Main loop cancelled.")
-    except Exception as e:
-        logger.critical(f"Fatal error during execution: {e}", exc_info=True)
-    finally:
-        await container.shutdown()
-
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Process terminated.")
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        log_level=settings.LOG_LEVEL.lower(),
+    )
