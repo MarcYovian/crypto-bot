@@ -22,11 +22,58 @@ env:
 
 jobs:
   # =========================================================================
+  # 0. PRE-DEPLOY TEST VERIFICATION (SAFETY GATE)
+  # =========================================================================
+  pre-deploy-tests:
+    name: Pre-Deploy Test Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backend Pytest Suite
+        working-directory: ./backend
+        run: |
+          pytest -v
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run Frontend Tests & Build Check
+        working-directory: ./frontend
+        run: |
+          npm test
+          npm run build
+
+  # =========================================================================
   # 1. BUILD AND PUSH DOCKER IMAGES TO GITHUB CONTAINER REGISTRY (GHCR)
   # =========================================================================
   build-and-push:
     name: Build & Push Images to GHCR
     runs-on: ubuntu-latest
+    needs: [pre-deploy-tests]
     permissions:
       contents: read
       packages: write
@@ -161,7 +208,7 @@ jobs:
   notify-telegram:
     name: Send Deployment Status to Telegram
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-homelab]
+    needs: [pre-deploy-tests, build-and-push, deploy-homelab]
     if: always()
 
     steps:
@@ -184,4 +231,4 @@ jobs:
             <b>Author:</b> ${{ github.actor }}
             <b>Message:</b> ${{ github.event.head_commit.message }}
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            <b>Status:</b> ${{ needs.deploy-homelab.result == 'success' && '✅ DEPLOYED SUCCESSFULLY' || (needs.build-and-push.result == 'failure' && '❌ BUILD FAILED' || '⚠️ DEPLOYMENT FAILED') }}
+            <b>Status:</b> ${{ needs.deploy-homelab.result == 'success' && '✅ DEPLOYED SUCCESSFULLY' || (needs.pre-deploy-tests.result == 'failure' && '❌ PRE-DEPLOY TESTS FAILED' || (needs.build-and-push.result == 'failure' && '❌ BUILD FAILED' || '⚠️ DEPLOYMENT FAILED')) }}
