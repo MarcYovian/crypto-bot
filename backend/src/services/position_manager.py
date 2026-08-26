@@ -21,6 +21,7 @@ from src.repository.bot_setting_repository import BotSettingRepository
 from src.repository.risk_profile_repository import RiskProfileRepository
 from src.clients.binance_client import BinanceRestClient
 from src.clients.telegram_client import TelegramNotifierClient
+from src.services.precision_filter import PrecisionFilterService
 from src.api.websocket_manager import ws_manager
 
 
@@ -62,6 +63,14 @@ class PositionManager:
             raise TradeNotFoundError(f"Trade {fill.trade_id} not found for fill event", trade_id=fill.trade_id)
 
         # 1. Record Execution
+        realized_pnl = fill.realized_pnl
+        if (realized_pnl is None or realized_pnl == Decimal("0")) and fill.purpose.upper() not in ("ENTRY", ""):
+            if trade.entry_price:
+                if trade.side.upper() == "BUY":
+                    realized_pnl = (fill.fill_price - trade.entry_price) * fill.fill_qty
+                else:
+                    realized_pnl = (trade.entry_price - fill.fill_price) * fill.fill_qty
+
         await self.execution_repo.create(
             ExecutionCreate(
                 order_id=fill.order_id,
@@ -70,7 +79,7 @@ class PositionManager:
                 qty=fill.fill_qty,
                 commission=fill.fee,
                 commission_asset=fill.fee_asset,
-                realized_pnl=fill.realized_pnl,
+                realized_pnl=realized_pnl,
             )
         )
 
@@ -109,7 +118,7 @@ class PositionManager:
             await self.trade_event_repo.log_event(
                 trade_id=trade.id,
                 event_type="TP1_HIT",
-                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(realized_pnl or 0)},
             )
             await ws_manager.broadcast(
                 "TP_HIT",
@@ -118,15 +127,14 @@ class PositionManager:
                     "symbol": fill.symbol,
                     "tp_level": 1,
                     "fill_price": float(fill.fill_price),
-                    "realized_pnl": float(fill.realized_pnl),
+                    "realized_pnl": float(realized_pnl or 0),
                 },
             )
 
-            # Move SL to Break-Even (Entry Price)
-            bep_price = trade.entry_price or fill.fill_price
+            # Move SL to Break-Even (Entry price)
             await self._move_stop_loss(
                 trade=trade,
-                new_sl_price=bep_price,
+                new_sl_price=trade.entry_price or Decimal("0"),
                 is_bep=True,
                 is_trailing=False,
                 event_type="SL_MOVED_TO_BEP",
@@ -135,6 +143,8 @@ class PositionManager:
 
             if self.telegram_client:
                 try:
+                    price_prec = trade.instrument.price_precision if getattr(trade, "instrument", None) else 4
+                    qty_prec = trade.instrument.qty_precision if getattr(trade, "instrument", None) else 2
                     await self.telegram_client.send_take_profit_alert(
                         chat_id="ADMIN_CHANNEL",
                         symbol=fill.symbol,
@@ -142,8 +152,10 @@ class PositionManager:
                         tp_level=1,
                         exit_price=fill.fill_price,
                         closed_qty=fill.fill_qty,
-                        realized_pnl=fill.realized_pnl,
+                        realized_pnl=realized_pnl,
                         remaining_qty=updated_trade.remaining_qty if updated_trade else Decimal("0"),
+                        price_precision=price_prec,
+                        qty_precision=qty_prec,
                     )
                 except Exception:
                     pass
@@ -154,7 +166,7 @@ class PositionManager:
             await self.trade_event_repo.log_event(
                 trade_id=trade.id,
                 event_type="TP2_HIT",
-                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(realized_pnl or 0)},
             )
             await ws_manager.broadcast(
                 "TP_HIT",
@@ -163,7 +175,7 @@ class PositionManager:
                     "symbol": fill.symbol,
                     "tp_level": 2,
                     "fill_price": float(fill.fill_price),
-                    "realized_pnl": float(fill.realized_pnl),
+                    "realized_pnl": float(realized_pnl or 0),
                 },
             )
 
@@ -183,6 +195,8 @@ class PositionManager:
 
             if self.telegram_client:
                 try:
+                    price_prec = trade.instrument.price_precision if getattr(trade, "instrument", None) else 4
+                    qty_prec = trade.instrument.qty_precision if getattr(trade, "instrument", None) else 2
                     await self.telegram_client.send_take_profit_alert(
                         chat_id="ADMIN_CHANNEL",
                         symbol=fill.symbol,
@@ -190,8 +204,10 @@ class PositionManager:
                         tp_level=2,
                         exit_price=fill.fill_price,
                         closed_qty=fill.fill_qty,
-                        realized_pnl=fill.realized_pnl,
+                        realized_pnl=realized_pnl,
                         remaining_qty=updated_trade.remaining_qty if updated_trade else Decimal("0"),
+                        price_precision=price_prec,
+                        qty_precision=qty_prec,
                     )
                 except Exception:
                     pass
@@ -201,7 +217,7 @@ class PositionManager:
             await self.trade_event_repo.log_event(
                 trade_id=trade.id,
                 event_type="TP3",
-                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(realized_pnl or 0)},
             )
             await ws_manager.broadcast(
                 "TP_HIT",
@@ -210,18 +226,24 @@ class PositionManager:
                     "symbol": fill.symbol,
                     "tp_level": 3,
                     "fill_price": float(fill.fill_price),
-                    "realized_pnl": float(fill.realized_pnl),
+                    "realized_pnl": float(realized_pnl or 0),
                 },
             )
             await self.trade_repo.reduce_position_qty(trade_id=trade.id, closed_qty=fill.fill_qty)
-            await self.finalize_trade_closure(trade_id=trade.id, close_reason="TP3_HIT", result_type="WIN")
+            await self.finalize_trade_closure(
+                trade_id=trade.id,
+                close_reason="TP3_HIT",
+                result_type="WIN",
+                exit_price=fill.fill_price,
+                closed_qty=fill.fill_qty,
+            )
 
         # CASE 5: STOP LOSS Fill (SL Closure)
         elif purpose_upper in ("SL", "STOP_LOSS", "BEP_SL", "TRAILING_SL"):
             await self.trade_event_repo.log_event(
                 trade_id=trade.id,
                 event_type="SL",
-                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(fill.realized_pnl)},
+                payload={"fill_price": float(fill.fill_price), "realized_pnl": float(realized_pnl or 0)},
             )
             await ws_manager.broadcast(
                 "SL_HIT",
@@ -229,11 +251,16 @@ class PositionManager:
                     "trade_id": trade.id,
                     "symbol": fill.symbol,
                     "fill_price": float(fill.fill_price),
-                    "realized_pnl": float(fill.realized_pnl),
+                    "realized_pnl": float(realized_pnl or 0),
                 },
             )
             await self.trade_repo.reduce_position_qty(trade_id=trade.id, closed_qty=fill.fill_qty)
-            await self.finalize_trade_closure(trade_id=trade.id, close_reason="SL_HIT")
+            await self.finalize_trade_closure(
+                trade_id=trade.id,
+                close_reason="SL_HIT",
+                exit_price=fill.fill_price,
+                closed_qty=fill.fill_qty,
+            )
 
     async def _move_stop_loss(
         self,
@@ -245,6 +272,17 @@ class PositionManager:
         sl_purpose: str = "SL",
     ) -> None:
         """Helper to cancel existing exchange SL order and replace it with new defensive SL."""
+        sym = trade.instrument.symbol if getattr(trade, "instrument", None) else "BTCUSDT"
+        
+        # Round new SL price according to instrument tick size & precision
+        if getattr(trade, "instrument", None):
+            inst = trade.instrument
+            new_sl_price = PrecisionFilterService.round_price(
+                new_sl_price,
+                tick_size=inst.tick_size,
+                price_precision=inst.price_precision,
+            )
+
         # 1. Find existing SL order in DB
         sl_orders = (
             await self.order_repo.get_orders_by_purpose(trade.id, "SL")
@@ -258,7 +296,7 @@ class PositionManager:
         if old_sl_order and self.binance_client and old_sl_order.exchange_order_id:
             try:
                 await self.binance_client.cancel_order(
-                    symbol="BTCUSDT",
+                    symbol=sym,
                     order_id=old_sl_order.exchange_order_id,
                 )
             except Exception:
@@ -275,7 +313,6 @@ class PositionManager:
         new_exchange_sl_id = None
         exit_side = "SELL" if trade.side == "BUY" else "BUY"
         client_sl_id = f"{sl_purpose}_{trade.id}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:4]}"
-        sym = trade.instrument.symbol if getattr(trade, "instrument", None) else "BTCUSDT"
 
         if self.binance_client:
             try:
@@ -325,6 +362,8 @@ class PositionManager:
         trade_id: int,
         close_reason: str,
         result_type: Optional[str] = None,
+        exit_price: Optional[Decimal] = None,
+        closed_qty: Optional[Decimal] = None,
     ) -> Any:
         """Finalize closed trade, cancel remaining orders, calculate PnL, and save TradeSummary."""
         trade = await self.trade_repo.get_detail(trade_id)
@@ -403,13 +442,19 @@ class PositionManager:
         if self.telegram_client:
             try:
                 if res == "LOSS":
+                    price_prec = trade.instrument.price_precision if getattr(trade, "instrument", None) else 4
+                    qty_prec = trade.instrument.qty_precision if getattr(trade, "instrument", None) else 2
+                    final_exit_price = exit_price if exit_price is not None else trade.sl_price
+                    final_closed_qty = closed_qty if closed_qty is not None else trade.position_size
                     await self.telegram_client.send_stop_loss_alert(
                         chat_id="ADMIN_CHANNEL",
                         symbol=sym,
                         side=trade.side,
-                        exit_price=trade.sl_price,
-                        closed_qty=trade.position_size,
+                        exit_price=final_exit_price,
+                        closed_qty=final_closed_qty,
                         realized_pnl=net_pnl,
+                        price_precision=price_prec,
+                        qty_precision=qty_prec,
                     )
             except Exception:
                 pass

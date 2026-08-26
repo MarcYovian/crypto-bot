@@ -15,6 +15,42 @@ from src.domain.exceptions.telegram import (
 logger = logging.getLogger(__name__)
 
 
+def format_crypto_price(val: Any, precision: Optional[int] = None) -> str:
+    """Format crypto price dynamically based on magnitude and precision without losing decimals."""
+    if val is None:
+        return "N/A"
+    try:
+        d = Decimal(str(val))
+    except Exception:
+        return str(val)
+    if precision is not None and precision > 0:
+        return f"{d:.{precision}f}"
+    if abs(d) >= Decimal("1000"):
+        return f"{d:,.2f}"
+    elif abs(d) >= Decimal("1"):
+        s = f"{d:.4f}".rstrip("0").rstrip(".")
+        return s if "." in s else f"{d:.2f}"
+    elif abs(d) > Decimal("0"):
+        s = f"{d:.8f}".rstrip("0").rstrip(".")
+        return s
+    return "0.00"
+
+
+def format_crypto_qty(val: Any, precision: Optional[int] = None) -> str:
+    """Format crypto quantity cleanly without unnecessary trailing zeroes."""
+    if val is None:
+        return "0"
+    try:
+        d = Decimal(str(val))
+    except Exception:
+        return str(val)
+    if precision is not None and precision > 0:
+        s = f"{d:.{precision}f}".rstrip("0").rstrip(".") if "." in f"{d:.{precision}f}" else f"{d:.{precision}f}"
+        return s if s else "0"
+    s = f"{d:.4f}".rstrip("0").rstrip(".")
+    return s if s else "0"
+
+
 class TelegramNotifierClient:
     """Async client for Telegram Bot API notifications and interactive buttons."""
 
@@ -190,26 +226,94 @@ class TelegramNotifierClient:
         chat_id: Union[str, int],
         symbol: str,
         side: str,
-        entry_price: Decimal,
+        entry_price: Any,
         leverage: int,
-        position_size: Decimal,
-        margin: Decimal,
-        sl_price: Decimal,
-        tp_targets: List[Decimal],
+        position_size: Any,
+        margin: Any,
+        sl_price: Any,
+        tp_targets: Optional[List[Any]] = None,
+        notional_value: Optional[Any] = None,
+        risk_amount: Optional[Any] = None,
+        risk_percent: Optional[Any] = None,
+        tp_allocations: Optional[List[Any]] = None,
+        risk_reward_ratios: Optional[List[Any]] = None,
+        requested_leverage: Optional[int] = None,
+        is_leverage_downscaled: bool = False,
+        leverage_reason: Optional[str] = None,
+        order_type: str = "MARKET",
+        price_precision: Optional[int] = None,
+        qty_precision: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Send trade open confirmation alert."""
-        side_emoji = "🟢 LONG" if side.upper() == "BUY" else "🔴 SHORT"
-        tp_lines = ", ".join([f"TP{i+1}: {tp}" for i, tp in enumerate(tp_targets)])
+        """Send comprehensive trade open confirmation alert with exact price, size, and risk breakdown."""
+        side_upper = side.upper()
+        side_emoji = "🟢 BUY (LONG)" if side_upper == "BUY" else "🔴 SELL (SHORT)"
+        base_asset = symbol.replace("USDT", "").replace("/", "")
+
+        entry_dec = Decimal(str(entry_price)) if entry_price is not None else Decimal("0")
+        sl_dec = Decimal(str(sl_price)) if sl_price is not None else Decimal("0")
+        size_dec = Decimal(str(position_size)) if position_size is not None else Decimal("0")
+        margin_dec = Decimal(str(margin)) if margin is not None else Decimal("0")
+
+        # Calculate notional value if not provided
+        notional_dec = Decimal(str(notional_value)) if notional_value is not None else (size_dec * entry_dec)
+
+        # Calculate Stop Distance and SL percentage
+        stop_dist = abs(entry_dec - sl_dec)
+        sl_pct = (stop_dist / entry_dec * 100) if entry_dec > Decimal("0") else Decimal("0")
+        sl_sign = "-" if side_upper == "BUY" else "+"
+
+        # Format Risk Amount
+        risk_amt_dec = Decimal(str(risk_amount)) if risk_amount is not None else (stop_dist * size_dec)
+        risk_pct_str = f"{float(risk_percent):.1f}%" if risk_percent is not None else "2.0%"
+
+        # Format Take Profits Breakdown
+        tp_lines = []
+        if tp_allocations:
+            for alloc in tp_allocations:
+                lvl = getattr(alloc, "tp_level", 1)
+                p = Decimal(str(getattr(alloc, "price", 0)))
+                q = Decimal(str(getattr(alloc, "quantity", 0)))
+                raw_pct = Decimal(str(getattr(alloc, "percentage", 0)))
+                pct = raw_pct if raw_pct >= Decimal("1") else (raw_pct * Decimal("100"))
+                profit = abs(p - entry_dec) * q
+                profit_pct = (abs(p - entry_dec) / entry_dec * 100) if entry_dec > Decimal("0") else Decimal("0")
+                tp_lines.append(
+                    f"  • <b>TP{lvl} ({pct:.0f}% lot):</b> ${format_crypto_price(p, price_precision)} "
+                    f"(+{profit_pct:.2f}%) ➔ <b>+${profit:,.2f} USDT</b>"
+                )
+        elif tp_targets:
+            for i, tp in enumerate(tp_targets):
+                tp_dec = Decimal(str(tp))
+                tp_pct = (abs(tp_dec - entry_dec) / entry_dec * 100) if entry_dec > Decimal("0") else Decimal("0")
+                tp_lines.append(f"  • <b>TP{i+1}:</b> ${format_crypto_price(tp_dec, price_precision)} (+{tp_pct:.2f}%)")
+
+        tp_section = "\n".join(tp_lines) if tp_lines else "  <i>Tidak ada target Take Profit</i>"
+
+        # Downscale note
+        downscale_line = ""
+        if is_leverage_downscaled and requested_leverage:
+            downscale_line = f"\n⚠️ <i>Leverage di-downscale dari {requested_leverage}x ke {leverage}x (Batas Proteksi Likuidasi/Tier Bursa)</i>\n"
 
         text = (
-            f"🚀 <b>POSITION OPENED</b>\n\n"
+            f"🚀 <b>ORDER EXECUTED — POSITION OPENED</b>\n\n"
             f"💎 <b>Pair:</b> #{symbol}\n"
-            f"⚡ <b>Side:</b> {side_emoji} ({leverage}x)\n"
-            f"💵 <b>Entry Price:</b> ${entry_price:,.2f}\n"
-            f"📦 <b>Size:</b> {position_size} (${margin:,.2f} Margin)\n"
-            f"🛡️ <b>Stop Loss:</b> ${sl_price:,.2f}\n"
-            f"🎯 <b>Targets:</b> {tp_lines}\n"
-            f"⏰ <i>Order executed on Binance Futures</i>"
+            f"⚡ <b>Aksi:</b> {side_emoji} | <b>{leverage}x ISOLATED</b>\n"
+            f"🛒 <b>Tipe Order:</b> {order_type} (Instant Fill)\n\n"
+            f"📊 <b>RINCIAN POSISI & MARGIN:</b>\n"
+            f"• <b>Entry Fill Price:</b> ${format_crypto_price(entry_dec, price_precision)}\n"
+            f"• <b>Ukuran Posisi:</b> {format_crypto_qty(size_dec, qty_precision)} {base_asset}\n"
+            f"• <b>Total Notional:</b> ${notional_dec:,.2f} USDT\n"
+            f"• <b>Margin Digunakan:</b> ${margin_dec:,.2f} USDT\n\n"
+            f"🛡️ <b>RISK MANAGEMENT (STRICT 2.0% GUARD):</b>\n"
+            f"• <b>Stop Loss:</b> ${format_crypto_price(sl_dec, price_precision)} ({sl_sign}{sl_pct:.2f}%)\n"
+            f"• <b>Maksimal Kerugian (SL):</b> -${risk_amt_dec:,.2f} USDT ({risk_pct_str} Modal)\n"
+            f"{downscale_line}\n"
+            f"🎯 <b>TARGET TAKE PROFIT:</b>\n"
+            f"{tp_section}\n\n"
+            f"⚙️ <b>AUTOMATION ACTIVE:</b>\n"
+            f"• <i>TP1 Hit (50% lot): SL digeser otomatis ke Break-Even (BEP)</i>\n"
+            f"• <i>TP2 Hit (30% lot): Trailing Stop otomatis ke harga TP1</i>\n"
+            f"• <i>TP3/SL Hit: Seluruh sisa order exchange dibatalkan</i>"
         )
         return await self.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
 
@@ -219,21 +323,26 @@ class TelegramNotifierClient:
         symbol: str,
         side: str,
         tp_level: int,
-        exit_price: Decimal,
-        closed_qty: Decimal,
-        realized_pnl: Decimal,
-        remaining_qty: Decimal,
+        exit_price: Any,
+        closed_qty: Any,
+        realized_pnl: Any,
+        remaining_qty: Any,
+        price_precision: Optional[int] = None,
+        qty_precision: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Send partial take-profit fill alert."""
-        pnl_emoji = "💰" if realized_pnl >= Decimal("0") else "⚠️"
-        action_note = "🛡️ <i>SL moved to Break-Even (BEP)</i>" if tp_level == 1 else "📈 <i>Trailing SL active</i>"
+        pnl_dec = Decimal(str(realized_pnl)) if realized_pnl is not None else Decimal("0")
+        pnl_emoji = "💰" if pnl_dec >= Decimal("0") else "⚠️"
+        action_note = "🛡️ <i>SL otomatis digeser ke titik Break-Even (BEP)</i>" if tp_level == 1 else "📈 <i>Trailing SL aktif (SL di level TP1)</i>"
+        base_asset = symbol.replace("USDT", "").replace("/", "")
 
         text = (
             f"🎯 <b>TAKE PROFIT {tp_level} HIT!</b>\n\n"
-            f"💎 <b>Pair:</b> #{symbol}\n"
-            f"💵 <b>Exit Price:</b> ${exit_price:,.2f}\n"
-            f"{pnl_emoji} <b>Realized PnL:</b> +${realized_pnl:,.2f} USDT\n"
-            f"📦 <b>Closed Size:</b> {closed_qty} (Remaining: {remaining_qty})\n\n"
+            f"💎 <b>Pair:</b> #{symbol} ({side.upper()})\n"
+            f"💵 <b>Harga Exit TP{tp_level}:</b> ${format_crypto_price(exit_price, price_precision)}\n"
+            f"{pnl_emoji} <b>Realized PnL:</b> +${pnl_dec:,.2f} USDT\n"
+            f"📦 <b>Ukuran Ditutup:</b> {format_crypto_qty(closed_qty, qty_precision)} {base_asset}\n"
+            f"📊 <b>Sisa Posisi:</b> {format_crypto_qty(remaining_qty, qty_precision)} {base_asset}\n\n"
             f"{action_note}"
         )
         return await self.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
@@ -243,18 +352,22 @@ class TelegramNotifierClient:
         chat_id: Union[str, int],
         symbol: str,
         side: str,
-        exit_price: Decimal,
-        closed_qty: Decimal,
-        realized_pnl: Decimal,
+        exit_price: Any,
+        closed_qty: Any,
+        realized_pnl: Any,
+        price_precision: Optional[int] = None,
+        qty_precision: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Send Stop Loss hit alert."""
+        pnl_dec = Decimal(str(realized_pnl)) if realized_pnl is not None else Decimal("0")
+        base_asset = symbol.replace("USDT", "").replace("/", "")
         text = (
             f"🛑 <b>STOP LOSS TRIGGERED</b>\n\n"
             f"💎 <b>Pair:</b> #{symbol} ({side.upper()})\n"
-            f"💵 <b>Exit Price:</b> ${exit_price:,.2f}\n"
-            f"📦 <b>Closed Size:</b> {closed_qty}\n"
-            f"📉 <b>Realized PnL:</b> ${realized_pnl:,.2f} USDT\n\n"
-            f"🛡️ <i>Position closed to protect capital</i>"
+            f"💵 <b>Harga Exit SL:</b> ${format_crypto_price(exit_price, price_precision)}\n"
+            f"📦 <b>Ukuran Ditutup:</b> {format_crypto_qty(closed_qty, qty_precision)} {base_asset}\n"
+            f"📉 <b>Realized PnL:</b> -${abs(pnl_dec):,.2f} USDT\n\n"
+            f"🛡️ <i>Posisi ditutup penuh untuk membatasi kerugian modal.</i>"
         )
         return await self.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
 
@@ -292,8 +405,9 @@ class TelegramNotifierClient:
         reply_markup: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Edit an existing message text (e.g. after approval button is clicked)."""
+        target_chat = self.default_chat_id if (str(chat_id).upper() in ("ADMIN_CHANNEL", "1", "NONE", "") and self.default_chat_id) else chat_id
         payload: Dict[str, Any] = {
-            "chat_id": chat_id,
+            "chat_id": target_chat,
             "message_id": message_id,
             "text": text,
             "parse_mode": parse_mode,
@@ -326,8 +440,9 @@ class TelegramNotifierClient:
         message_id: int,
     ) -> bool:
         """Delete a message from chat history (useful for scrubbing sensitive secrets)."""
+        target_chat = self.default_chat_id if (str(chat_id).upper() in ("ADMIN_CHANNEL", "1", "NONE", "") and self.default_chat_id) else chat_id
         payload = {
-            "chat_id": chat_id,
+            "chat_id": target_chat,
             "message_id": message_id,
         }
         try:

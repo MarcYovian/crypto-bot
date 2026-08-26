@@ -2,7 +2,7 @@
 
 import pytest
 import pytest_asyncio
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -146,7 +146,7 @@ async def test_run_cleanup_orphan_orders_job(async_session: AsyncSession, sched_
         tp1_price=Decimal("54000.0"),
         leverage=10,
         margin_mode="ISOLATED",
-        created_at=datetime.now() - timedelta(hours=5),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=5),
     )
     async_session.add(stale_trade)
     await async_session.flush()

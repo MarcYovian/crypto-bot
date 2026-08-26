@@ -28,11 +28,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       DATABASE_URL: postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db
       LOG_LEVEL: INFO
     env_file:
-      - ${ENV_FILE:-./backend/.env.example}
+      - ${ENV_FILE:-./backend/.env}
     volumes:
       - ./backend:/app
     healthcheck:

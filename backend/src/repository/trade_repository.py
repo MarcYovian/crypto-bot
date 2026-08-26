@@ -146,7 +146,8 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
         Returns:
             List of expired WAITING_ENTRY Trade instances.
         """
-        cutoff = datetime.now() - timedelta(hours=max_hours)
+        from datetime import timezone
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=max_hours)
         stmt = (
             select(Trade)
             .where(

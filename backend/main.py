@@ -9,7 +9,8 @@ import logging
 import signal
 import sys
 from contextlib import asynccontextmanager
-from typing import Optional, List, AsyncIterator
+from decimal import Decimal
+from typing import Optional, List, AsyncIterator, Any, Dict
 
 import uvicorn
 from fastapi import FastAPI
@@ -273,19 +274,91 @@ class ApplicationContainer:
                 logger.info("APScheduler background jobs active (7 maintenance jobs).")
 
             # 3. WebSocket listener callback wiring (Binance user data stream)
-            async def on_order_fill_event(fill_dto):
-                async with self.session_maker() as fill_session:
-                    pm = PositionManager(
-                        trade_repo=TradeRepository(fill_session),
-                        order_repo=OrderRepository(fill_session),
-                        execution_repo=ExecutionRepository(fill_session),
-                        trade_event_repo=TradeEventRepository(fill_session),
-                        trade_summary_repo=TradeSummaryRepository(fill_session),
-                        daily_risk_repo=DailyRiskRepository(fill_session),
-                        binance_client=self.binance_client,
-                        telegram_client=self.telegram_client,
-                    )
-                    await pm.handle_order_fill(fill_dto)
+            async def on_order_fill_event(order_data: Any):
+                if isinstance(order_data, dict):
+                    binance_order_id = str(order_data.get("id") or order_data.get("orderId") or "")
+                    client_order_id = str(order_data.get("clientOrderId") or "")
+                    status = str(order_data.get("status") or "").upper()
+
+                    if status in ("CLOSED", "FILLED") and (binance_order_id or client_order_id):
+                        async with self.session_maker() as fill_session:
+                            order_repo = OrderRepository(fill_session)
+                            order = None
+                            if binance_order_id:
+                                order = await order_repo.get_by_exchange_order_id(binance_order_id)
+                            if not order and client_order_id:
+                                order = await order_repo.get_by_client_order_id(client_order_id)
+
+                            if not order:
+                                symbol_clean = order_data.get("symbol", "").replace("/", "").replace(":USDT", "").upper() or "BTCUSDT"
+                                trade_repo_find = TradeRepository(fill_session)
+                                active_trades = await trade_repo_find.get_active_trades_with_instrument()
+                                matching_trade = next(
+                                    (t for t in active_trades if t.instrument and t.instrument.symbol.upper().replace("/", "").split(":")[0] == symbol_clean),
+                                    None
+                                )
+                                if matching_trade:
+                                    order_side = str(order_data.get("side") or ("BUY" if matching_trade.side.upper() == "SELL" else "SELL")).upper()
+                                    from src.schemas.order import OrderCreate
+                                    order = await order_repo.create(
+                                        OrderCreate(
+                                            trade_id=matching_trade.id,
+                                            exchange_order_id=binance_order_id,
+                                            client_order_id=client_order_id or f"EXT_{matching_trade.id}_{binance_order_id}",
+                                            order_type="STOP_MARKET",
+                                            purpose="SL",
+                                            side=order_side,
+                                            price=Decimal(str(order_data.get("average") or order_data.get("price") or matching_trade.sl_price or 0)),
+                                            qty=Decimal(str(order_data.get("filled") or order_data.get("amount") or matching_trade.remaining_qty)),
+                                            status="FILLED",
+                                            reduce_only=True,
+                                        )
+                                    )
+
+                            if order:
+                                filled_qty = Decimal(str(order_data.get("filled") or order_data.get("amount") or order.qty))
+                                avg_price = Decimal(str(order_data.get("average") or order_data.get("price") or order.price or 0))
+                                fee_cost = Decimal(str(order_data.get("fee", {}).get("cost") or 0.0))
+
+                                pm = PositionManager(
+                                    trade_repo=TradeRepository(fill_session),
+                                    order_repo=order_repo,
+                                    execution_repo=ExecutionRepository(fill_session),
+                                    trade_event_repo=TradeEventRepository(fill_session),
+                                    trade_summary_repo=TradeSummaryRepository(fill_session),
+                                    daily_risk_repo=DailyRiskRepository(fill_session),
+                                    binance_client=self.binance_client,
+                                    telegram_client=self.telegram_client,
+                                )
+                                from src.domain.entities.trade import OrderFillDTO
+                                fill_dto = OrderFillDTO(
+                                    order_id=order.id,
+                                    trade_id=order.trade_id,
+                                    symbol=order_data.get("symbol", "").replace("/", "").replace(":USDT", "").upper() or "BTCUSDT",
+                                    side=order.side,
+                                    purpose=order.purpose,
+                                    fill_price=avg_price,
+                                    fill_qty=filled_qty,
+                                    exchange_order_id=binance_order_id,
+                                    client_order_id=client_order_id or order.client_order_id,
+                                    fee=fee_cost,
+                                    fee_asset="USDT",
+                                    status="FILLED",
+                                )
+                                await pm.handle_order_fill(fill_dto)
+                elif hasattr(order_data, "trade_id"):
+                    async with self.session_maker() as fill_session:
+                        pm = PositionManager(
+                            trade_repo=TradeRepository(fill_session),
+                            order_repo=OrderRepository(fill_session),
+                            execution_repo=ExecutionRepository(fill_session),
+                            trade_event_repo=TradeEventRepository(fill_session),
+                            trade_summary_repo=TradeSummaryRepository(fill_session),
+                            daily_risk_repo=DailyRiskRepository(fill_session),
+                            binance_client=self.binance_client,
+                            telegram_client=self.telegram_client,
+                        )
+                        await pm.handle_order_fill(order_data)
 
             if self.binance_ws and self.binance_ws.api_key:
                 ws_task = asyncio.create_task(

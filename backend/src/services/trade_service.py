@@ -20,6 +20,7 @@ from src.domain.exceptions.trade import (
 from src.domain.exceptions.risk import MaxRiskExceededError
 from src.schemas.trade import (
     TradeCreate,
+    TradeStatusUpdate,
     ActiveTradeDTO,
     PaginatedTradeHistoryDTO,
     TradeDetailDTO,
@@ -211,17 +212,32 @@ class TradeService:
         import time
         client_entry_id = f"ENTRY_{trade.id}_{int(time.time() * 1000)}"
         exchange_entry_id = None
+        actual_entry_price = signal_dto.avg_entry_price
 
         if self.binance_client:
-            entry_resp = await self.binance_client.create_entry_order(
-                symbol=signal_dto.symbol,
-                side=signal_dto.side,
-                order_type="MARKET",
-                qty=risk_res.position_size,
-                price=signal_dto.avg_entry_price,
-                client_order_id=client_entry_id,
-            )
-            exchange_entry_id = entry_resp.get("id") or str(entry_resp.get("orderId", ""))
+            try:
+                entry_resp = await self.binance_client.create_entry_order(
+                    symbol=signal_dto.symbol,
+                    side=signal_dto.side,
+                    order_type="MARKET",
+                    qty=risk_res.position_size,
+                    price=signal_dto.avg_entry_price,
+                    client_order_id=client_entry_id,
+                )
+                exchange_entry_id = entry_resp.get("id") or str(entry_resp.get("orderId", ""))
+                avg_val = entry_resp.get("average")
+                price_val = entry_resp.get("price")
+                if avg_val is not None and float(avg_val) > 0:
+                    actual_entry_price = Decimal(str(avg_val))
+                elif price_val is not None and float(price_val) > 0:
+                    actual_entry_price = Decimal(str(price_val))
+            except Exception as e:
+                from src.schemas.trade import TradeStatusUpdate
+                await self.trade_repo.update_trade_status(
+                    trade_id=trade.id,
+                    schema=TradeStatusUpdate(status="CANCELLED"),
+                )
+                raise e
 
         await self.order_repo.create(
             OrderCreate(
@@ -231,7 +247,7 @@ class TradeService:
                 order_type="MARKET",
                 purpose="ENTRY",
                 side=signal_dto.side,
-                price=signal_dto.avg_entry_price,
+                price=actual_entry_price,
                 qty=risk_res.position_size,
                 status="FILLED" if exchange_entry_id else "NEW",
             )
@@ -244,7 +260,7 @@ class TradeService:
         if auto_tp_sl:
             opposite_side = "SELL" if signal_dto.side.upper() == "BUY" else "BUY"
 
-            # Stop Loss Order
+            # Stop Loss Order (Position-level Stop Loss)
             client_sl_id = f"SL_{trade.id}_{int(time.time() * 1000)}"
             if self.binance_client:
                 sl_resp = await self.binance_client.create_stop_loss_order(
@@ -253,6 +269,7 @@ class TradeService:
                     stop_price=signal_dto.sl_price,
                     qty=risk_res.position_size,
                     client_order_id=client_sl_id,
+                    close_position=True,
                 )
                 sl_order_id = sl_resp.get("id") or str(sl_resp.get("orderId", ""))
 
@@ -308,7 +325,7 @@ class TradeService:
             "trace_id": getattr(signal_dto, "trace_id", ""),
             "symbol": signal_dto.symbol,
             "side": signal_dto.side,
-            "entry_price": float(signal_dto.avg_entry_price),
+            "entry_price": float(actual_entry_price),
             "sl_price": float(signal_dto.sl_price),
             "position_size": float(risk_res.position_size),
             "leverage": effective_leverage,
@@ -329,19 +346,32 @@ class TradeService:
         # Step 11: Telegram Notification
         if self.telegram_client:
             try:
+                notional_val = risk_res.position_size * actual_entry_price
+                actual_margin = notional_val / Decimal(str(effective_leverage))
                 await self.telegram_client.send_trade_opened_alert(
                     chat_id="ADMIN_CHANNEL",
                     symbol=signal_dto.symbol,
                     side=signal_dto.side,
-                    entry_price=signal_dto.avg_entry_price,
+                    entry_price=actual_entry_price,
                     leverage=effective_leverage,
                     position_size=risk_res.position_size,
-                    margin=risk_res.required_margin,
+                    margin=actual_margin,
                     sl_price=signal_dto.sl_price,
                     tp_targets=signal_dto.tp_targets,
+                    notional_value=notional_val,
+                    risk_amount=risk_res.risk_amount,
+                    risk_percent=risk_res.risk_percent,
+                    tp_allocations=risk_res.tp_allocations,
+                    risk_reward_ratios=risk_res.risk_reward_ratios,
+                    requested_leverage=req_leverage,
+                    is_leverage_downscaled=risk_res.is_leverage_downscaled,
+                    leverage_reason=risk_res.leverage_adjustment_reason,
+                    order_type="MARKET",
+                    price_precision=getattr(instrument, "price_precision", 4),
+                    qty_precision=getattr(instrument, "qty_precision", 2),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error sending trade opened alert to Telegram: {e}")
 
         await ws_manager.broadcast(
             "TRADE_OPENED",

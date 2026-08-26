@@ -146,7 +146,13 @@ async def test_binance_create_entry_and_protection_orders():
         type="stop_market",
         side="sell",
         amount=None,
-        params={"stopPrice": 59000.0, "closePosition": True, "newClientOrderId": "SL_01"},
+        params={
+            "stopPrice": 59000.0,
+            "workingType": "MARK_PRICE",
+            "priceProtect": "TRUE",
+            "closePosition": True,
+            "newClientOrderId": "SL_01",
+        },
     )
 
     # Take Profit Order
@@ -159,11 +165,15 @@ async def test_binance_create_entry_and_protection_orders():
     )
     client.client.create_order.assert_called_with(
         symbol="BTC/USDT:USDT",
-        type="limit",
+        type="take_profit_market",
         side="sell",
         amount=0.05,
-        price=62000.0,
-        params={"reduceOnly": True, "newClientOrderId": "TP_01"},
+        params={
+            "stopPrice": 62000.0,
+            "workingType": "MARK_PRICE",
+            "reduceOnly": True,
+            "newClientOrderId": "TP_01",
+        },
     )
 
     await client.close()
