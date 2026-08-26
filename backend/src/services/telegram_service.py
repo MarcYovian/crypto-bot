@@ -885,7 +885,8 @@ class TelegramService:
         if not signal:
             return {"status": "SIGNAL_NOT_FOUND", "signal_id": signal_id}
 
-        target_chat = chat_id if (chat_id not in (1, "1", None, "") and str(chat_id).upper() != "ADMIN_CHANNEL") else (self.telegram_client.default_chat_id or chat_id)
+        default_chat = getattr(self.telegram_client, "default_chat_id", None) if self.telegram_client else None
+        target_chat = chat_id if (chat_id not in (1, "1", None, "") and str(chat_id).upper() != "ADMIN_CHANNEL") else (default_chat or chat_id)
 
         if action == "APPROVE":
             # 1. Update status

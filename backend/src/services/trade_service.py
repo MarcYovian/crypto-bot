@@ -225,10 +225,12 @@ class TradeService:
                     client_order_id=client_entry_id,
                 )
                 exchange_entry_id = entry_resp.get("id") or str(entry_resp.get("orderId", ""))
-                if entry_resp.get("average") and float(entry_resp.get("average")) > 0:
-                    actual_entry_price = Decimal(str(entry_resp.get("average")))
-                elif entry_resp.get("price") and float(entry_resp.get("price")) > 0:
-                    actual_entry_price = Decimal(str(entry_resp.get("price")))
+                avg_val = entry_resp.get("average")
+                price_val = entry_resp.get("price")
+                if avg_val is not None and float(avg_val) > 0:
+                    actual_entry_price = Decimal(str(avg_val))
+                elif price_val is not None and float(price_val) > 0:
+                    actual_entry_price = Decimal(str(price_val))
             except Exception as e:
                 from src.schemas.trade import TradeStatusUpdate
                 await self.trade_repo.update_trade_status(
