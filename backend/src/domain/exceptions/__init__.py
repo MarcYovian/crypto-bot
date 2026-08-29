@@ -21,6 +21,7 @@ from src.domain.exceptions.telegram import (
 from src.domain.exceptions.signal import (
     SignalParseError,
     InvalidSignalDataError,
+    SignalNotFoundError,
 )
 from src.domain.exceptions.risk import (
     RiskCalculationError,
@@ -28,6 +29,7 @@ from src.domain.exceptions.risk import (
     MaxRiskExceededError,
     InsufficientMarginRiskError,
     InvalidSignalGeometryError,
+    StopLossCannotExceedEntryError,
 )
 from src.domain.exceptions.trade import (
     TradeExecutionError,
@@ -75,6 +77,7 @@ __all__ = [
     "TelegramMessageParseError",
     "SignalParseError",
     "InvalidSignalDataError",
+    "SignalNotFoundError",
     "RiskCalculationError",
     "ZeroStopDistanceError",
     "MaxRiskExceededError",

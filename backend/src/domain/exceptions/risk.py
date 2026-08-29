@@ -34,3 +34,9 @@ class InvalidSignalGeometryError(RiskCalculationError):
     """Invalid price geometry for trade direction (e.g. SL higher than Entry for BUY)."""
     pass
 
+
+class StopLossCannotExceedEntryError(InvalidSignalGeometryError):
+    """Stop Loss adjustment violates risk reduction invariant."""
+    pass
+
+
