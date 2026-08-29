@@ -24,7 +24,7 @@ services:
     container_name: crypto_bot_app
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8002:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,6 +38,7 @@ services:
       - ${ENV_FILE:-./backend/.env}
     volumes:
       - ./backend:/app
+      - ./logs/wsbinance:/var/log/cryptobot/wsbinance
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
