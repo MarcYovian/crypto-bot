@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from src.schemas import (
+from src.presentation.api.schemas import (
     # Common
     PaginatedResponse,
     # Master
@@ -269,6 +269,45 @@ def test_parsed_signal_dto_validation():
             entry_max=Decimal("60000"),
             sl_price=Decimal("59800")
         )
+
+
+def test_domain_parsed_signal_dto_from_dict_and_from_json():
+    """Test domain ParsedSignalDTO.from_dict and from_json with strict Decimal conversions."""
+    from src.domain.entities.signal import ParsedSignalDTO as DomainParsedSignalDTO
+
+    raw_json = (
+        '{"symbol": "WIFUSDT", "side": "BUY", "order_type": "MARKET", "entry_min": "0.2", '
+        '"entry_max": "0.2", "entry_targets": ["0.2"], "sl_price": "0.1990", '
+        '"tp_targets": ["0.21", "0.22", "0.23"], "leverage": 75, "timeframe": "1H", '
+        '"pattern": "Ranging Channel", "notes": "Valid test pattern", "confidence_score": 0.78, '
+        '"is_valid": true, "trace_id": "sig-d852aefe"}'
+    )
+
+    dto = DomainParsedSignalDTO.from_json(raw_json)
+    assert dto.symbol == "WIFUSDT"
+    assert dto.side == "BUY"
+    assert dto.order_type == "MARKET"
+    assert isinstance(dto.entry_min, Decimal)
+    assert dto.entry_min == Decimal("0.2")
+    assert isinstance(dto.sl_price, Decimal)
+    assert dto.sl_price == Decimal("0.1990")
+    assert isinstance(dto.tp_targets[0], Decimal)
+    assert dto.tp_targets == [Decimal("0.21"), Decimal("0.22"), Decimal("0.23")]
+    assert dto.leverage == 75
+    assert dto.timeframe == "1H"
+    assert dto.pattern == "Ranging Channel"
+    assert dto.notes == "Valid test pattern"
+    assert dto.confidence_score == 0.78
+    assert dto.trace_id == "sig-d852aefe"
+    assert dto.avg_entry_price == Decimal("0.2")
+
+    # Test roundtrip serialization
+    json_out = dto.to_json()
+    dto_roundtrip = DomainParsedSignalDTO.from_json(json_out)
+    assert dto_roundtrip.symbol == dto.symbol
+    assert dto_roundtrip.sl_price == dto.sl_price
+    assert dto_roundtrip.leverage == dto.leverage
+
 
 
 def test_trading_signal_and_confirmation_schemas():

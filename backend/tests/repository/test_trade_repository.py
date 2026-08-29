@@ -5,8 +5,8 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     Instrument,
@@ -18,12 +18,12 @@ from src.database.models import (
     TradeEvent,
     TradeSummary,
 )
-from src.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate
-from src.schemas.trade import TradeCreate, TradeStatusUpdate
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.trade_repository import TradeRepository
+from src.presentation.api.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate
+from src.presentation.api.schemas.trade import TradeCreate, TradeStatusUpdate
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

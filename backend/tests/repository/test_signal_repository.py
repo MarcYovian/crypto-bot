@@ -4,14 +4,14 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import Exchange, Instrument, SignalProvider
-from src.schemas.master import ExchangeCreate, InstrumentCreate, SignalProviderCreate
-from src.schemas.signal import TradingSignalCreate
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.signal_provider_repository import SignalProviderRepository
-from src.repository.signal_repository import SignalRepository
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, Instrument, SignalProvider
+from src.presentation.api.schemas.master import ExchangeCreate, InstrumentCreate, SignalProviderCreate
+from src.presentation.api.schemas.signal import TradingSignalCreate
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.signal_provider_repository import SignalProviderRepository
+from src.infrastructure.persistence.repositories.signal_repository import SignalRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

@@ -7,22 +7,23 @@ from decimal import Decimal
 from unittest.mock import AsyncMock
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Watchlist, DailyRiskConfig
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Watchlist, DailyRiskConfig
 from src.domain.entities.signal import ParsedSignalDTO
-from src.services.signal_parser import SignalParserService
-from src.services.trade_service import TradeService
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.watchlist_repository import WatchlistRepository
-from src.repository.trade_repository import TradeRepository
-from src.repository.trade_risk_repository import TradeRiskRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.order_repository import OrderRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.clients.binance_client import BinanceRestClient
+from src.domain.services.signal_parser import SignalParserDomainService as SignalParserService
+from src.application.use_cases.trades.execute_signal_use_case import ExecuteSignalUseCase
+from src.application.dto.trade_commands import ExecuteSignalCommand
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.watchlist_repository import WatchlistRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.trade_risk_repository import TradeRiskRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
 
 
 @pytest_asyncio.fixture
@@ -90,25 +91,38 @@ async def test_trace_id_propagates_to_trade_event_log(async_session: AsyncSessio
     async_session.add(daily_risk)
     await async_session.commit()
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_binance = AsyncMock()
     mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0"), "free_margin": Decimal("1000.0")})
+    mock_binance.fetch_ticker_price = AsyncMock(return_value=Decimal("50000.0"))
     mock_binance.fetch_ticker = AsyncMock(return_value={"last_price": Decimal("50000.0")})
+    mock_binance.has_price_reached_target = AsyncMock(return_value=False)
     mock_binance.set_margin_mode = AsyncMock()
     mock_binance.set_leverage = AsyncMock()
-    mock_binance.create_entry_order = AsyncMock(return_value={"id": "mkt-123"})
+    mock_binance.create_order = AsyncMock(return_value={"id": "mkt-123", "order_id": "mkt-123", "average": 50000.0, "price": 50000.0, "status": "FILLED"})
+    mock_binance.create_entry_order = AsyncMock(return_value={"id": "mkt-123", "average": 50000.0})
     mock_binance.create_stop_loss_order = AsyncMock(return_value={"id": "sl-123"})
     mock_binance.create_take_profit_order = AsyncMock(return_value={"id": "tp-123"})
 
-    service = TradeService(
-        instrument_repo=InstrumentRepository(async_session),
-        watchlist_repo=WatchlistRepository(async_session),
-        trade_repo=TradeRepository(async_session),
-        trade_risk_repo=TradeRiskRepository(async_session),
-        daily_risk_repo=DailyRiskRepository(async_session),
-        order_repo=OrderRepository(async_session),
-        trade_event_repo=TradeEventRepository(async_session),
-        risk_profile_repo=RiskProfileRepository(async_session),
-        binance_client=mock_binance,
+
+    inst_repo = InstrumentRepository(async_session)
+    watch_repo = WatchlistRepository(async_session)
+    trade_repo = TradeRepository(async_session)
+    trade_risk_repo = TradeRiskRepository(async_session)
+    daily_risk_repo = DailyRiskRepository(async_session)
+    order_repo = OrderRepository(async_session)
+    trade_event_repo = TradeEventRepository(async_session)
+    risk_repo = RiskProfileRepository(async_session)
+
+    execute_use_case = ExecuteSignalUseCase(
+        instrument_repo=inst_repo,
+        watchlist_repo=watch_repo,
+        trade_repo=trade_repo,
+        trade_risk_repo=trade_risk_repo,
+        daily_risk_repo=daily_risk_repo,
+        order_repo=order_repo,
+        trade_event_repo=trade_event_repo,
+        risk_profile_repo=risk_repo,
+        exchange_gateway=mock_binance,
     )
 
     signal_dto = ParsedSignalDTO(
@@ -124,10 +138,12 @@ async def test_trace_id_propagates_to_trade_event_log(async_session: AsyncSessio
         is_valid=True,
     )
 
-    result = await service.execute_signal(signal_dto=signal_dto, account_id=account.id)
+    cmd = ExecuteSignalCommand(signal_dto=signal_dto, account_id=account.id)
+    result = await execute_use_case.execute(cmd)
+
     assert result.is_success is True
 
-    events = await service.trade_event_repo.get_events_by_trade(result.trade_id)
+    events = await trade_event_repo.get_events_by_trade(result.trade_id)
     assert len(events) > 0
     assert "trace_id" in events[0].payload_json
     assert signal_dto.trace_id in events[0].payload_json

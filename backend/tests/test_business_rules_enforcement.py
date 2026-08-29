@@ -1,38 +1,41 @@
 """Business rules enforcement: 2% Risk Per Trade, Single Active Pair, Whitelist, Max Open Positions."""
 
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Watchlist, Strategy, SignalProvider, RiskProfile, DailyRiskConfig, Trade
-from src.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate, WatchlistCreate, StrategyCreate, SignalProviderCreate, RiskProfileCreate
-from src.schemas.trade import TradeCreate
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Watchlist, Strategy, SignalProvider, RiskProfile, DailyRiskConfig, Trade
+from src.presentation.api.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate, WatchlistCreate, StrategyCreate, SignalProviderCreate, RiskProfileCreate
+from src.presentation.api.schemas.trade import TradeCreate
 from src.domain.entities.signal import ParsedSignalDTO
+from src.domain.entities.risk import PositionSizingInput
 from src.domain.exceptions.trade import (
     PairAlreadyActiveError,
     SymbolNotWhitelistedError,
 )
 from src.domain.exceptions.risk import MaxRiskExceededError
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.watchlist_repository import WatchlistRepository
-from src.repository.strategy_repository import StrategyRepository
-from src.repository.signal_provider_repository import SignalProviderRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.repository.trade_repository import TradeRepository
-from src.repository.trade_risk_repository import TradeRiskRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.order_repository import OrderRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.services.trade_service import TradeService
-from src.services.risk_calculator import RiskCalculatorService
-from src.clients.binance_client import BinanceRestClient
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.watchlist_repository import WatchlistRepository
+from src.infrastructure.persistence.repositories.strategy_repository import StrategyRepository
+from src.infrastructure.persistence.repositories.signal_provider_repository import SignalProviderRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.trade_risk_repository import TradeRiskRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.application.use_cases.trades.execute_signal_use_case import ExecuteSignalUseCase
+from src.application.dto.trade_commands import ExecuteSignalCommand
+from src.domain.services.risk_calculator import RiskCalculatorDomainService
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
 
 
 @pytest_asyncio.fixture
@@ -146,6 +149,113 @@ async def business_env(async_session: AsyncSession):
     }
 
 
+class MockExchangeGatewayAdapter:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def fetch_balance(self, account_id: Optional[int] = None) -> Dict[str, Any]:
+        if hasattr(self._client, "fetch_balance"):
+            res = self._client.fetch_balance()
+            return await res if hasattr(res, "__await__") else res
+        return {"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")}
+
+    async def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
+        if hasattr(self._client, "fetch_ticker_price"):
+            res = self._client.fetch_ticker_price(symbol=symbol)
+            price = await res if hasattr(res, "__await__") else res
+            return {"last": price, "price": price}
+        if hasattr(self._client, "fetch_ticker"):
+            res = self._client.fetch_ticker(symbol=symbol)
+            return await res if hasattr(res, "__await__") else res
+        return {"last": Decimal("50000.0")}
+
+    async def set_leverage(self, symbol: str, leverage: int) -> Any:
+        if hasattr(self._client, "set_leverage"):
+            res = self._client.set_leverage(symbol=symbol, leverage=leverage)
+            return await res if hasattr(res, "__await__") else res
+
+    async def set_margin_mode(self, symbol: str, margin_mode: str) -> Any:
+        if hasattr(self._client, "set_margin_mode"):
+            res = self._client.set_margin_mode(symbol=symbol, margin_mode=margin_mode)
+            return await res if hasattr(res, "__await__") else res
+
+    async def create_order(self, symbol: str, side: Any, order_type: Any, qty: Decimal, price: Optional[Decimal] = None, client_order_id: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
+        return {
+            "order_id": "MOCK_ORDER_1",
+            "exchange_order_id": "MOCK_ORDER_1",
+            "status": "FILLED" if str(order_type).upper() == "MARKET" else "NEW",
+            "price": float(price or 0),
+        }
+
+    async def create_stop_loss_order(self, **kwargs) -> Dict[str, Any]:
+        return {"order_id": "MOCK_SL_1", "exchange_order_id": "MOCK_SL_1", "status": "NEW"}
+
+    async def create_take_profit_order(self, **kwargs) -> Dict[str, Any]:
+        return {"order_id": "MOCK_TP_1", "exchange_order_id": "MOCK_TP_1", "status": "NEW"}
+
+    async def has_price_reached_target(self, symbol: str, target_price: Decimal, *args: Any, **kwargs: Any) -> bool:
+        return False
+
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+
+class TradeService:
+    def __init__(
+        self,
+        instrument_repo=None,
+        watchlist_repo=None,
+        trade_repo=None,
+        trade_risk_repo=None,
+        daily_risk_repo=None,
+        order_repo=None,
+        trade_event_repo=None,
+        risk_profile_repo=None,
+        bracket_repo=None,
+        exchange_gateway=None,
+        risk_calculator=None,
+        event_publisher=None,
+    ):
+        self.instrument_repo = instrument_repo
+        self.watchlist_repo = watchlist_repo
+        self.trade_repo = trade_repo
+        self.trade_risk_repo = trade_risk_repo
+        self.daily_risk_repo = daily_risk_repo
+        self.order_repo = order_repo
+        self.trade_event_repo = trade_event_repo
+        self.risk_profile_repo = risk_profile_repo or (RiskProfileRepository(self.trade_repo.session) if hasattr(self.trade_repo, "session") else None)
+        self.bracket_repo = bracket_repo
+        self.exchange_gateway = MockExchangeGatewayAdapter(exchange_gateway) if exchange_gateway is not None else None
+        self.risk_calculator = risk_calculator
+        self.event_publisher = event_publisher
+
+
+        self._execute_uc = ExecuteSignalUseCase(
+            instrument_repo=self.instrument_repo,
+            watchlist_repo=self.watchlist_repo,
+            trade_repo=self.trade_repo,
+            trade_risk_repo=self.trade_risk_repo,
+            daily_risk_repo=self.daily_risk_repo,
+            order_repo=self.order_repo,
+            trade_event_repo=self.trade_event_repo,
+            risk_profile_repo=self.risk_profile_repo,
+            bracket_repo=self.bracket_repo,
+            exchange_gateway=self.exchange_gateway,
+            risk_calculator=self.risk_calculator,
+            event_publisher=self.event_publisher,
+        )
+
+    async def execute_signal(self, signal_dto: ParsedSignalDTO, account_id: int = 1, strategy_id: int = None, auto_tp_sl: bool = True):
+        cmd = ExecuteSignalCommand(
+            signal_dto=signal_dto,
+            account_id=account_id,
+            strategy_id=strategy_id,
+            auto_tp_sl=auto_tp_sl,
+        )
+        return await self._execute_uc.execute(cmd)
+
+
 # =============================================================================
 # 1. STRICT 2% RISK PER POSITION MATHEMATICAL PROOF
 # =============================================================================
@@ -158,16 +268,17 @@ async def business_env(async_session: AsyncSession):
 ])
 def test_strict_2_percent_max_loss_guarantee(balance: Decimal, entry: Decimal, sl: Decimal, leverage: int):
     """Parametrized test proving that for any balance, loss at SL is guaranteed <= 2.0%."""
-    calc = RiskCalculatorService()
-    res = calc.calculate_position_size(
+    calc = RiskCalculatorDomainService()
+    inp = PositionSizingInput(
         wallet_balance=balance,
         risk_percent=Decimal("2.0"),
         entry_price=entry,
         sl_price=sl,
-        leverage=leverage,
+        requested_leverage=leverage,
         step_size=Decimal("0.001"),
         qty_precision=3,
     )
+    res = calc.calculate_position_size(inp)
 
     assert res.is_valid is True
     max_allowable_loss = balance * Decimal("0.02")  # Exactly 2% of capital
@@ -210,7 +321,7 @@ async def test_reject_duplicate_signal_on_same_pair(async_session: AsyncSession,
         daily_risk_repo=DailyRiskRepository(async_session),
         order_repo=OrderRepository(async_session),
         trade_event_repo=TradeEventRepository(async_session),
-        risk_calculator=RiskCalculatorService(),
+        risk_calculator=RiskCalculatorDomainService(),
     )
 
     new_signal = ParsedSignalDTO(
@@ -249,7 +360,7 @@ async def test_reject_signal_not_in_watchlist(async_session: AsyncSession, busin
         daily_risk_repo=DailyRiskRepository(async_session),
         order_repo=OrderRepository(async_session),
         trade_event_repo=TradeEventRepository(async_session),
-        risk_calculator=RiskCalculatorService(),
+        risk_calculator=RiskCalculatorDomainService(),
     )
 
     unwhitelisted_signal = ParsedSignalDTO(
@@ -304,8 +415,9 @@ async def test_reject_signal_exceeding_max_open_positions(async_session: AsyncSe
     ))
     await watch_repo.create(WatchlistCreate(instrument_id=bnb_inst.id, is_active=True))
 
-    mock_binance = BinanceRestClient()
+    mock_binance = MagicMock()
     mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0"), "free_margin": Decimal("800.0")})
+
     mock_binance.fetch_positions = AsyncMock(return_value=[])
     mock_binance.set_leverage = AsyncMock(return_value={"symbol": "BNBUSDT", "leverage": 10})
     mock_binance.set_margin_mode = AsyncMock(return_value={"symbol": "BNBUSDT", "margin_mode": "ISOLATED"})
@@ -319,9 +431,10 @@ async def test_reject_signal_exceeding_max_open_positions(async_session: AsyncSe
         order_repo=OrderRepository(async_session),
         trade_event_repo=TradeEventRepository(async_session),
         risk_profile_repo=RiskProfileRepository(async_session),
-        risk_calculator=RiskCalculatorService(),
-        binance_client=mock_binance,
+        risk_calculator=RiskCalculatorDomainService(),
+        exchange_gateway=mock_binance,
     )
+
 
     bnb_signal = ParsedSignalDTO(
         symbol="BNBUSDT",

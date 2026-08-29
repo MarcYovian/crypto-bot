@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
 
     LOG_LEVEL: str = "INFO"
+    WS_CACHE_LOG_PATH: str = "/var/log/cryptobot/wsbinance/"
 
     # JWT Authentication & Admin Defaults
     JWT_SECRET_KEY: str = "dev-secret-jwt-key-replace-in-production-0987654321"

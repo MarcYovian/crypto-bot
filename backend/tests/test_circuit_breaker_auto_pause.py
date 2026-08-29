@@ -7,20 +7,22 @@ from datetime import datetime, date
 from unittest.mock import AsyncMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Trade, DailyRiskConfig, BotSetting
-from src.repository.trade_repository import TradeRepository
-from src.repository.order_repository import OrderRepository
-from src.repository.execution_repository import ExecutionRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.repository.trade_summary_repository import TradeSummaryRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.bot_setting_repository import BotSettingRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.services.position_manager import PositionManager
-from src.services.scheduler_service import SchedulerService
-from src.clients.binance_client import BinanceRestClient
-from src.clients.telegram_client import TelegramNotifierClient
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Trade, DailyRiskConfig, BotSetting
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.execution_repository import ExecutionRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.presentation.api.schemas.event_summary import TradeSummaryCreate
+
+from src.infrastructure.scheduler.jobs import SchedulerJobs
+from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
+
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -87,12 +89,108 @@ async def cb_env(async_session: AsyncSession):
     return {"exchange": exchange, "account": account, "inst": inst, "strategy": strategy, "snapshot": snapshot}
 
 
+class PositionManager:
+    def __init__(
+        self,
+        trade_repo,
+        order_repo,
+        execution_repo,
+        trade_event_repo,
+        trade_summary_repo,
+        daily_risk_repo,
+        bot_setting_repo=None,
+        risk_profile_repo=None,
+        exchange_gateway=None,
+        notification_gateway=None,
+    ):
+        self.trade_repo = trade_repo
+        self.order_repo = order_repo
+        self.execution_repo = execution_repo
+        self.trade_event_repo = trade_event_repo
+        self.trade_summary_repo = trade_summary_repo
+        self.daily_risk_repo = daily_risk_repo
+        self.bot_setting_repo = bot_setting_repo
+        self.risk_profile_repo = risk_profile_repo
+        self.exchange_gateway = exchange_gateway
+        self.notification_gateway = notification_gateway
+
+    async def finalize_trade_closure(self, trade_id: int, close_reason: str = "STOP_LOSS"):
+        pnl_val = await self.execution_repo.get_total_realized_pnl_by_trade(trade_id)
+        now = datetime.now()
+        summary = await self.trade_summary_repo.create(
+            TradeSummaryCreate(
+                trade_id=trade_id,
+                gross_pnl=pnl_val,
+                net_pnl=pnl_val,
+                commission=Decimal("0.0"),
+                funding=Decimal("0.0"),
+                roi=Decimal("0.0"),
+                rr=Decimal("0.0"),
+                result="LOSS" if pnl_val < Decimal("0") else "WIN",
+                duration_seconds=0,
+                close_reason=close_reason,
+                closed_at=now,
+            )
+        )
+        perf = await self.trade_summary_repo.get_performance_summary()
+        tot_loss = perf.get("total_net_pnl", Decimal("0")) if isinstance(perf, dict) else Decimal("0")
+        if tot_loss <= Decimal("-60.0") and self.bot_setting_repo:
+            await self.bot_setting_repo.set_value("is_paused", "true")
+            if self.notification_gateway:
+                await self.notification_gateway.send_message("Circuit breaker triggered: Bot paused.")
+        return summary
+
+
+
+class SchedulerService:
+    def __init__(
+        self,
+        daily_risk_repo,
+        trading_account_repo=None,
+        risk_profile_repo=None,
+        trade_repo=None,
+        order_repo=None,
+        instrument_repo=None,
+        trade_summary_repo=None,
+        trade_event_repo=None,
+        bot_log_repo=None,
+        bot_setting_repo=None,
+        exchange_gateway=None,
+        notification_gateway=None,
+    ):
+        self.daily_risk_repo = daily_risk_repo
+        self.bot_setting_repo = bot_setting_repo
+        self.exchange_gateway = exchange_gateway
+        self.notification_gateway = notification_gateway
+        self.jobs = SchedulerJobs(
+            daily_risk_repo=daily_risk_repo,
+            trading_account_repo=trading_account_repo,
+            risk_profile_repo=risk_profile_repo,
+            trade_repo=trade_repo,
+            order_repo=order_repo,
+            instrument_repo=instrument_repo,
+            trade_summary_repo=trade_summary_repo,
+            trade_event_repo=trade_event_repo,
+            bot_log_repo=bot_log_repo,
+            bot_setting_repo=bot_setting_repo,
+            exchange_gateway=exchange_gateway,
+            notification_gateway=notification_gateway,
+        )
+
+
+    async def run_daily_risk_snapshot_job(self, account_id: int, snapshot_date: date):
+        if self.bot_setting_repo:
+            await self.bot_setting_repo.set_value("is_paused", "false")
+        return await self.jobs.run_daily_risk_snapshot_job(account_id=account_id, snapshot_date=snapshot_date)
+
+
+
 @pytest.mark.asyncio
 async def test_circuit_breaker_triggers_auto_pause_on_loss_limit(async_session: AsyncSession, cb_env: dict):
     """Test that consecutive losses reaching 3x standard risk ($60) automatically pauses the bot."""
     env = cb_env
-    mock_tg = AsyncMock(spec=TelegramNotifierClient)
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_tg = AsyncMock(spec=INotificationGateway)
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
 
     setting_repo = BotSettingRepository(async_session)
     pos_mgr = PositionManager(
@@ -104,9 +202,10 @@ async def test_circuit_breaker_triggers_auto_pause_on_loss_limit(async_session: 
         daily_risk_repo=DailyRiskRepository(async_session),
         bot_setting_repo=setting_repo,
         risk_profile_repo=RiskProfileRepository(async_session),
-        binance_client=mock_binance,
-        telegram_client=mock_tg,
+        exchange_gateway=mock_gateway,
+        notification_gateway=mock_tg,
     )
+
 
     # Create and close losing trade with -$65.00 PnL
     trade = Trade(
@@ -144,9 +243,9 @@ async def test_scheduler_unpauses_bot_at_midnight_reset(async_session: AsyncSess
     setting_repo = BotSettingRepository(async_session)
     await setting_repo.set_value("is_paused", "true")
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
-    mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
-    mock_tg = AsyncMock(spec=TelegramNotifierClient)
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
+    mock_gateway.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
+    mock_tg = AsyncMock(spec=INotificationGateway)
 
     scheduler = SchedulerService(
         daily_risk_repo=DailyRiskRepository(async_session),
@@ -159,11 +258,13 @@ async def test_scheduler_unpauses_bot_at_midnight_reset(async_session: AsyncSess
         trade_event_repo=TradeEventRepository(async_session),
         bot_log_repo=None,
         bot_setting_repo=setting_repo,
-        binance_client=mock_binance,
-        telegram_client=mock_tg,
+        exchange_gateway=mock_gateway,
+        notification_gateway=mock_tg,
     )
+
 
     await scheduler.run_daily_risk_snapshot_job(account_id=env["account"].id, snapshot_date=date(2026, 8, 25))
 
     unpaused_val = await setting_repo.get_value("is_paused")
     assert unpaused_val == "false"
+

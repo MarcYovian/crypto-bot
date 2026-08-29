@@ -1,11 +1,10 @@
-"""Edge test cases for RiskCalculatorService and PrecisionFilterService."""
-
 from decimal import Decimal
 import pytest
 
-from src.services.precision_filter import PrecisionFilterService, SymbolInfo
-from src.services.risk_calculator import RiskCalculatorService
+from src.domain.services.precision_filter import PrecisionFilterDomainService as PrecisionFilterService
+from src.domain.services.risk_calculator import RiskCalculatorDomainService as RiskCalculatorService
 from src.domain.exceptions.risk import (
+
     ZeroStopDistanceError,
     MaxRiskExceededError,
     InsufficientMarginRiskError,
@@ -158,3 +157,72 @@ def test_leverage_clamping_bounds():
     assert PrecisionFilterService.clamp_leverage(150, max_leverage=125, min_leverage=1) == 125
     assert PrecisionFilterService.clamp_leverage(25, max_leverage=20, min_leverage=1) == 20
     assert PrecisionFilterService.clamp_leverage(10, max_leverage=50, min_leverage=1) == 10
+
+
+def test_position_size_clamped_to_instrument_max_qty(risk_calc: RiskCalculatorService):
+    """Test that position size exceeding instrument max_qty is clamped to max_qty."""
+    # Balance $100,000, 2% risk = $2,000. Entry: 100, SL: 99 (Stop distance 1).
+    # Raw Qty = 2,000 / 1 = 2,000 units.
+    # Instrument max_qty is set to 500 units.
+    res = risk_calc.calculate_position_size(
+        wallet_balance=Decimal("100000.0"),
+        risk_percent=Decimal("2.0"),
+        entry_price=Decimal("100.0"),
+        sl_price=Decimal("99.0"),
+        step_size=Decimal("0.1"),
+        qty_precision=1,
+        max_qty=Decimal("500.0"),
+    )
+
+    assert res.is_valid is True
+    # Clamped to upper limit
+    assert res.position_size == Decimal("500.0")
+    assert res.position_size * res.entry_price == Decimal("50000.0")
+
+
+def test_position_size_rejected_below_instrument_min_qty(risk_calc: RiskCalculatorService):
+    """Test that position size below instrument min_qty is marked invalid."""
+    # Balance $1000, 2% risk = $20.0. Entry: 50, SL: 45 (Stop distance 5).
+    # Raw Qty = 20.0 / 5 = 4.0 units. Notional = 4.0 * 50 = $200 (well above min_notional $5).
+    # Instrument min_qty is set to 10.0 units.
+    res = risk_calc.calculate_position_size(
+        wallet_balance=Decimal("1000.0"),
+        risk_percent=Decimal("2.0"),
+        entry_price=Decimal("50.0"),
+        sl_price=Decimal("45.0"),
+        step_size=Decimal("0.1"),
+        qty_precision=1,
+        min_qty=Decimal("10.0"),
+    )
+
+    assert res.is_valid is False
+    assert "below instrument minimum quantity" in (res.warning or "")
+
+
+def test_leverage_auto_maximization_and_opt_out(risk_calc: RiskCalculatorService):
+    """Test that leverage auto-maximizes by default, but respects requested when maximize_leverage=False."""
+    # Entry 100, SL 97 (Distance 3%). Total buffer = 3% + 1.5% MMR = 4.5%.
+    # Max Safe = 1 / 0.045 = 22x.
+    # Signal requests 5x.
+    # Default (maximize_leverage=True) -> Effective leverage = 22x (or bracket ceiling 125x -> 22x)
+    res_max = risk_calc.calculate_position_size(
+        wallet_balance=Decimal("10000.0"),
+        risk_percent=Decimal("2.0"),
+        entry_price=Decimal("100.0"),
+        sl_price=Decimal("97.0"),
+        leverage=5,
+        maximize_leverage=True,
+    )
+    assert res_max.leverage == 22
+
+    # When maximize_leverage=False -> Effective leverage stays 5x
+    res_conservative = risk_calc.calculate_position_size(
+        wallet_balance=Decimal("10000.0"),
+        risk_percent=Decimal("2.0"),
+        entry_price=Decimal("100.0"),
+        sl_price=Decimal("97.0"),
+        leverage=5,
+        maximize_leverage=False,
+    )
+    assert res_conservative.leverage == 5
+

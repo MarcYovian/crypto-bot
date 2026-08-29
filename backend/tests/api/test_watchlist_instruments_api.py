@@ -9,19 +9,19 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
 
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     Instrument,
     InstrumentLeverageBracket,
     Watchlist,
 )
-from src.repository.user_repository import UserRepository
+from src.infrastructure.persistence.repositories.user_repository import UserRepository
 from src.utils.security import get_password_hash
 from src.utils.cache import in_memory_cache
-from src.api.app import create_app
-from src.api.deps import get_db_session
+from src.presentation.api.app import create_app
+from src.presentation.api.deps import get_db_session
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -279,14 +279,15 @@ async def test_toggle_watchlist_new_symbol_on_demand(app_and_client: AsyncClient
     ]
 
     with patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_instruments_metadata",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_instruments_metadata",
         new_callable=AsyncMock,
         return_value=mock_metadata,
     ), patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_leverage_brackets",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_leverage_brackets",
         new_callable=AsyncMock,
         return_value=mock_brackets,
     ):
+
         res = await client.post(
             "/api/v1/watchlist/toggle",
             headers={"Authorization": f"Bearer {token}"},
@@ -307,10 +308,11 @@ async def test_toggle_watchlist_invalid_symbol(app_and_client: AsyncClient):
     token = await get_admin_token(client)
 
     with patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_instruments_metadata",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_instruments_metadata",
         new_callable=AsyncMock,
         return_value=[],
     ):
+
         res = await client.post(
             "/api/v1/watchlist/toggle",
             headers={"Authorization": f"Bearer {token}"},
@@ -444,14 +446,15 @@ async def test_sync_instruments_from_exchange_success(app_and_client: AsyncClien
     ]
 
     with patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_instruments_metadata",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_instruments_metadata",
         new_callable=AsyncMock,
         return_value=mock_metadata,
     ), patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_leverage_brackets",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_leverage_brackets",
         new_callable=AsyncMock,
         return_value=mock_brackets,
     ):
+
         res = await client.post(
             "/api/v1/instruments/sync",
             headers={"Authorization": f"Bearer {token}"},
@@ -540,10 +543,11 @@ async def test_instruments_30m_caching_and_sync_invalidation(app_and_client: Asy
 
     # 2. Sync instruments -> invalidates cache
     with patch(
-        "src.clients.binance_client.BinanceRestClient.fetch_instruments_metadata",
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_instruments_metadata",
         new_callable=AsyncMock,
         return_value=[],
     ):
+
         sync_res = await client.post(
             "/api/v1/instruments/sync",
             headers={"Authorization": f"Bearer {token}"},

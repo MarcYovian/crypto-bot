@@ -4,11 +4,11 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.schemas.master import StrategyCreate, SignalProviderCreate, RiskProfileCreate
-from src.repository.strategy_repository import StrategyRepository
-from src.repository.signal_provider_repository import SignalProviderRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
+from src.infrastructure.persistence.connection import Base
+from src.presentation.api.schemas.master import StrategyCreate, SignalProviderCreate, RiskProfileCreate
+from src.infrastructure.persistence.repositories.strategy_repository import StrategyRepository
+from src.infrastructure.persistence.repositories.signal_provider_repository import SignalProviderRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

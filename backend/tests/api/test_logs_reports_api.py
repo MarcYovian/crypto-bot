@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 from sqlalchemy.pool import StaticPool
 
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     Instrument,
@@ -22,11 +22,11 @@ from src.database.models import (
     TradeSummary,
     BotLog,
 )
-from src.repository.user_repository import UserRepository
+from src.infrastructure.persistence.repositories.user_repository import UserRepository
 from src.utils.security import get_password_hash
 from src.utils.cache import in_memory_cache
-from src.api.app import create_app
-from src.api.deps import get_db_session
+from src.presentation.api.app import create_app
+from src.presentation.api.deps import get_db_session
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 

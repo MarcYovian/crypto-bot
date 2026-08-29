@@ -1,11 +1,11 @@
-"""Comprehensive unit tests for SignalParserService, RiskCalculatorService, and PrecisionFilterService."""
-
 from decimal import Decimal
+from unittest.mock import MagicMock
 import pytest
-from src.services.precision_filter import PrecisionFilterService
-from src.services.signal_parser import SignalParserService
-from src.services.risk_calculator import RiskCalculatorService
+from src.domain.services.precision_filter import PrecisionFilterDomainService as PrecisionFilterService
+from src.domain.services.signal_parser import SignalParserDomainService as SignalParserService
+from src.domain.services.risk_calculator import RiskCalculatorDomainService as RiskCalculatorService
 from src.domain.exceptions.signal import SignalParseError, InvalidSignalDataError
+
 from src.domain.exceptions.risk import ZeroStopDistanceError
 
 
@@ -235,7 +235,8 @@ def test_risk_calculator_dynamic_leverage_and_safe_mmr():
     assert res1.requested_leverage == 75
     assert res1.max_safe_leverage == 18
     assert res1.is_leverage_downscaled is True
-    assert "disesuaikan dari 75x ke 18x" in res1.leverage_adjustment_reason.lower()
+    assert "75x" in res1.leverage_adjustment_reason and "18x" in res1.leverage_adjustment_reason
+
 
     # Scenario 2: Tight stop distance 1% (Entry: 100, SL: 99), MMR = 1.5% (Total risk buffer = 2.5%)
     # Max Safe Leverage = 1 / 0.025 = 40x
@@ -255,4 +256,145 @@ def test_risk_calculator_dynamic_leverage_and_safe_mmr():
     assert res2.is_valid is True
     assert res2.leverage == 20
     assert res2.is_leverage_downscaled is False
+
+
+def test_risk_calculator_uses_precomputed_max_risk_amount():
+    """Test that calculate_position_size directly utilizes max_risk_amount from DailyRiskConfig."""
+    calculator = RiskCalculatorService()
+
+    # Even if wallet_balance * 2% would be $200, passing max_risk_amount=$150 (from DailyRisk)
+    # must directly set risk_amount to $150 and compute position size accordingly.
+    # Stop distance = 2,000. Expected Qty = 150 / 2,000 = 0.075 BTC
+    res = calculator.calculate_position_size(
+        wallet_balance=Decimal("10000"),
+        risk_percent=Decimal("2.0"),
+        entry_price=Decimal("60000"),
+        sl_price=Decimal("58000"),
+        leverage=20,
+        step_size=Decimal("0.001"),
+        qty_precision=3,
+        max_risk_amount=Decimal("150.0"),
+    )
+
+    assert res.is_valid is True
+    assert res.risk_amount == Decimal("150.0")
+    assert res.position_size == Decimal("0.075")
+    assert (res.position_size * res.stop_distance) == Decimal("150.000")
+
+
+def test_risk_calculator_with_bundled_domain_entities():
+    """Test that calculate_position_size extracts parameters directly from Domain Entities."""
+    from unittest.mock import MagicMock
+    calculator = RiskCalculatorService()
+
+    # Mock domain entities
+    mock_signal = MagicMock(
+        avg_entry_price=Decimal("60000.0"),
+        sl_price=Decimal("58000.0"),
+        leverage=25,
+        tp_targets=[Decimal("63000.0"), Decimal("66000.0")],
+    )
+    mock_instrument = MagicMock(
+        tick_size=Decimal("0.1"),
+        step_size=Decimal("0.001"),
+        price_precision=2,
+        qty_precision=3,
+        min_notional=Decimal("5.0"),
+        leverage_brackets=[],
+    )
+    mock_profile = MagicMock(
+        risk_percent=Decimal("3.0"),
+    )
+    mock_daily_risk = MagicMock(
+        risk_amount=Decimal("300.0"),
+    )
+
+    res = calculator.calculate_position_size(
+        wallet_balance=Decimal("10000.0"),
+        signal_dto=mock_signal,
+        instrument=mock_instrument,
+        profile=mock_profile,
+        daily_risk=mock_daily_risk,
+    )
+
+    assert res.is_valid is True
+    assert res.risk_amount == Decimal("300.0")  # extracted from daily_risk
+    assert res.entry_price == Decimal("60000.0")  # extracted from signal_dto
+    assert res.sl_price == Decimal("58000.0")      # extracted from signal_dto
+    assert res.requested_leverage == 25           # extracted from signal_dto
+    assert len(res.tp_allocations) == 2           # 2 TP targets from signal_dto
+
+
+def test_risk_calculator_asymmetric_price_deviation():
+    """Test pure calculation of asymmetric price deviations for BUY and SELL."""
+    calc = RiskCalculatorService()
+
+    # 1. BUY: Current cheaper than target (Favorable -> 0.0)
+    dev_buy_favorable = calc.calculate_price_deviation(
+        target_price=Decimal("60000.0"),
+        current_price=Decimal("59800.0"),
+        side="BUY",
+    )
+    assert dev_buy_favorable == Decimal("0")
+
+    # 2. BUY: Current more expensive than target (Unfavorable)
+    dev_buy_unfavorable = calc.calculate_price_deviation(
+        target_price=Decimal("60000.0"),
+        current_price=Decimal("60090.0"),
+        side="BUY",
+    )
+    assert dev_buy_unfavorable == Decimal("0.0015")  # +0.15%
+
+    # 3. SELL: Current higher than target (Favorable -> 0.0)
+    dev_sell_favorable = calc.calculate_price_deviation(
+        target_price=Decimal("60000.0"),
+        current_price=Decimal("60500.0"),
+        side="SELL",
+    )
+    assert dev_sell_favorable == Decimal("0")
+
+    # 4. SELL: Current lower than target (Unfavorable)
+    dev_sell_unfavorable = calc.calculate_price_deviation(
+        target_price=Decimal("60000.0"),
+        current_price=Decimal("59400.0"),
+        side="SELL",
+    )
+    assert dev_sell_unfavorable == Decimal("0.01")  # +1.0%
+
+
+def test_risk_calculator_with_entry_price_override():
+    """Test that entry_price override properly calculates sizing using live execution price."""
+    calculator = RiskCalculatorService()
+    mock_signal = MagicMock(
+        avg_entry_price=Decimal("60000.0"),
+        sl_price=Decimal("58000.0"),
+        leverage=20,
+        tp_targets=[Decimal("63000.0")],
+    )
+    mock_instrument = MagicMock(
+        tick_size=Decimal("0.1"),
+        step_size=Decimal("0.001"),
+        price_precision=2,
+        qty_precision=3,
+        min_notional=Decimal("5.0"),
+        leverage_brackets=[],
+    )
+
+    # When live market entry is 60,100 (stop_distance = 60100 - 58000 = 2100)
+    res = calculator.calculate_position_size(
+        wallet_balance=Decimal("10000.0"),
+        signal_dto=mock_signal,
+        instrument=mock_instrument,
+        risk_percent=Decimal("2.0"),  # $200 risk
+        entry_price=Decimal("60100.0"),
+    )
+
+    assert res.is_valid is True
+    assert res.entry_price == Decimal("60100.0")
+    assert res.stop_distance == Decimal("2100.0")
+    # Position size = 200 / 2100 = 0.095238... rounded to step_size 0.001 = 0.095
+    assert res.position_size == Decimal("0.095")
+
+
+
 

@@ -6,17 +6,17 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Trade, TradeEvent, TradeSummary
-from src.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate
-from src.schemas.trade import TradeCreate
-from src.schemas.event_summary import TradeEventCreate, TradeSummaryCreate
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.trade_repository import TradeRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.repository.trade_summary_repository import TradeSummaryRepository
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Trade, TradeEvent, TradeSummary
+from src.presentation.api.schemas.master import ExchangeCreate, TradingAccountCreate, InstrumentCreate
+from src.presentation.api.schemas.trade import TradeCreate
+from src.presentation.api.schemas.event_summary import TradeEventCreate, TradeSummaryCreate
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
