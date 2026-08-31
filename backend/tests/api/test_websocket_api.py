@@ -3,7 +3,7 @@
 import pytest
 import pytest_asyncio
 from decimal import Decimal
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool

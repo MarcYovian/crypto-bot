@@ -1,7 +1,7 @@
 """Data-access repository for per-trade risk breakdown and active exposure."""
 
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Any
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import TradeRisk, Trade
@@ -15,6 +15,10 @@ class TradeRiskRepository(BaseRepository[TradeRisk, TradeRiskCreate, BaseSchema]
 
     def __init__(self, session: AsyncSession):
         super().__init__(TradeRisk, session)
+
+    async def get(self, id: Any) -> Optional[TradeRisk]:
+        """Fetch a single record by primary key (trade_id)."""
+        return await self.get_by_trade_id(int(id))
 
     async def get_by_trade_id(self, trade_id: int) -> Optional[TradeRisk]:
         """Fetch risk parameters for a specific trade (trade_id is primary key).

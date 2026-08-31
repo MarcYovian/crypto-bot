@@ -227,3 +227,85 @@ def test_leverage_clamping_to_exchange_max():
     # Sinyal meminta 0x atau negatif
     clamped_zero = PrecisionFilterService.clamp_leverage(requested_leverage=0, max_leverage=50, min_leverage=1)
     assert clamped_zero == 1
+
+
+# =============================================================================
+# 4. ENVIRONMENT HARDENING & SETTINGS SECURITY
+# =============================================================================
+
+def test_settings_development_defaults():
+    """Verify default development configuration initializes without error."""
+    from config.settings import Settings
+    s = Settings(
+        ENVIRONMENT="development",
+        _env_file=None,
+    )
+    assert s.ENVIRONMENT == "development"
+    assert "http://localhost:3000" in s.CORS_ORIGINS
+    assert s.DEFAULT_ADMIN_PASSWORD == "AdminPassword123!"
+
+
+def test_settings_cors_origins_parsing():
+    """Verify CORS_ORIGINS parses comma-separated strings to list."""
+    from config.settings import Settings
+    s = Settings(
+        ENVIRONMENT="development",
+        CORS_ORIGINS="https://app.example.com, https://admin.example.com",
+        _env_file=None,
+    )
+    assert s.CORS_ORIGINS == ["https://app.example.com", "https://admin.example.com"]
+
+
+def test_settings_production_rejects_default_jwt_secret():
+    """Verify production mode raises ValueError if JWT_SECRET_KEY is the dev default."""
+    from config.settings import Settings
+    with pytest.raises(ValueError, match="JWT_SECRET_KEY must be securely set in production mode"):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="dev-secret-jwt-key-replace-in-production-0987654321",
+            DEFAULT_ADMIN_PASSWORD="StrongProductionPassword999!",
+            CORS_ORIGINS="https://dashboard.example.com",
+            _env_file=None,
+        )
+
+
+def test_settings_production_rejects_default_admin_password():
+    """Verify production mode raises ValueError if DEFAULT_ADMIN_PASSWORD is unchanged."""
+    from config.settings import Settings
+    with pytest.raises(ValueError, match="DEFAULT_ADMIN_PASSWORD must be explicitly provided in production mode"):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="a" * 64,
+            DEFAULT_ADMIN_PASSWORD="AdminPassword123!",
+            CORS_ORIGINS="https://dashboard.example.com",
+            _env_file=None,
+        )
+
+
+def test_settings_production_rejects_cors_wildcard():
+    """Verify production mode raises ValueError if CORS origins contains wildcard *."""
+    from config.settings import Settings
+    with pytest.raises(ValueError, match="CORS wildcard"):
+        Settings(
+            ENVIRONMENT="production",
+            JWT_SECRET_KEY="a" * 64,
+            DEFAULT_ADMIN_PASSWORD="StrongProductionPassword999!",
+            CORS_ORIGINS="*",
+            _env_file=None,
+        )
+
+
+def test_settings_production_valid_configuration():
+    """Verify production mode succeeds when all security requirements are satisfied."""
+    from config.settings import Settings
+    s = Settings(
+        ENVIRONMENT="production",
+        JWT_SECRET_KEY="super-secret-random-production-key-that-is-very-long-and-secure-123456",
+        DEFAULT_ADMIN_PASSWORD="StrongAdminPassword999!",
+        CORS_ORIGINS="https://dashboard.example.com, https://app.example.com",
+        _env_file=None,
+    )
+    assert s.ENVIRONMENT == "production"
+    assert s.CORS_ORIGINS == ["https://dashboard.example.com", "https://app.example.com"]
+    assert s.DEFAULT_ADMIN_PASSWORD == "StrongAdminPassword999!"
+

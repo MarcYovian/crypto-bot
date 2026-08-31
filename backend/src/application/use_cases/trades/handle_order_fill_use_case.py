@@ -137,8 +137,6 @@ class HandleOrderFillUseCase:
             ),
         )
 
-
-
         purpose = order.purpose.upper() if order.purpose else "UNKNOWN"
 
         # 4. Dispatch based on Order Purpose
@@ -239,6 +237,11 @@ class HandleOrderFillUseCase:
                 except Exception as exc:
                     logger.warning("Failed to cancel open orders on full TP close: %s", exc)
 
+            if self.order_repo:
+                try:
+                    await self.order_repo.cancel_all_open_orders_for_trade(trade.id)
+                except Exception as exc:
+                    logger.debug("Failed updating local DB open orders to cancelled: %s", exc)
 
             # Record Trade Summary
             now = datetime.now()
@@ -258,21 +261,24 @@ class HandleOrderFillUseCase:
             
             final_net = total_gross - tot_comm
             
-            await self.trade_summary_repo.create(
-                TradeSummaryCreate(
-                    trade_id=trade.id,
-                    gross_pnl=total_gross,
-                    net_pnl=final_net,
-                    commission=tot_comm,
-                    funding=Decimal("0.0"),
-                    roi=Decimal("0.0"),
-                    rr=Decimal("0.0"),
-                    result="WIN" if final_net > Decimal("0") else ("LOSS" if final_net < Decimal("0") else "BREAKEVEN"),
-                    duration_seconds=0,
-                    close_reason="TAKE_PROFIT_COMPLETE",
-                    closed_at=now,
-                )
+            existing_sum = await self.trade_summary_repo.get(trade.id)
+            sum_payload = TradeSummaryCreate(
+                trade_id=trade.id,
+                gross_pnl=total_gross,
+                net_pnl=final_net,
+                commission=tot_comm,
+                funding=Decimal("0.0"),
+                roi=Decimal("0.0"),
+                rr=Decimal("0.0"),
+                result="WIN" if final_net > Decimal("0") else ("LOSS" if final_net < Decimal("0") else "BREAKEVEN"),
+                duration_seconds=0,
+                close_reason="TAKE_PROFIT_COMPLETE",
+                closed_at=now,
             )
+            if existing_sum:
+                await self.trade_summary_repo.update(existing_sum, sum_payload)
+            else:
+                await self.trade_summary_repo.create(sum_payload)
 
 
             if self.event_publisher:
@@ -368,6 +374,11 @@ class HandleOrderFillUseCase:
             except Exception as exc:
                 logger.warning("Failed to cancel open orders on SL hit: %s", exc)
 
+        if self.order_repo:
+            try:
+                await self.order_repo.cancel_all_open_orders_for_trade(trade.id)
+            except Exception as exc:
+                logger.debug("Failed updating local DB open orders to cancelled: %s", exc)
 
         # Record Trade Summary
         now = datetime.now()
@@ -376,21 +387,24 @@ class HandleOrderFillUseCase:
             tot_comm = fee
         net_loss = realized_pnl - tot_comm
 
-        await self.trade_summary_repo.create(
-            TradeSummaryCreate(
-                trade_id=trade.id,
-                gross_pnl=realized_pnl,
-                net_pnl=net_loss,
-                commission=tot_comm,
-                funding=Decimal("0.0"),
-                roi=Decimal("0.0"),
-                rr=Decimal("0.0"),
-                result="WIN" if net_loss > Decimal("0") else ("LOSS" if net_loss < Decimal("0") else "BREAKEVEN"),
-                duration_seconds=0,
-                close_reason="SL_HIT",
-                closed_at=now,
-            )
+        existing_sum = await self.trade_summary_repo.get(trade.id)
+        sum_payload = TradeSummaryCreate(
+            trade_id=trade.id,
+            gross_pnl=realized_pnl,
+            net_pnl=net_loss,
+            commission=tot_comm,
+            funding=Decimal("0.0"),
+            roi=Decimal("0.0"),
+            rr=Decimal("0.0"),
+            result="WIN" if net_loss > Decimal("0") else ("LOSS" if net_loss < Decimal("0") else "BREAKEVEN"),
+            duration_seconds=0,
+            close_reason="SL_HIT",
+            closed_at=now,
         )
+        if existing_sum:
+            await self.trade_summary_repo.update(existing_sum, sum_payload)
+        else:
+            await self.trade_summary_repo.create(sum_payload)
 
 
 

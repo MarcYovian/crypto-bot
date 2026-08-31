@@ -33,9 +33,19 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             The model instance if found, otherwise None.
         """
-        stmt = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        if hasattr(self.model, "id"):
+            stmt = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        elif hasattr(self.model, "trade_id"):
+            stmt = select(self.model).where(self.model.trade_id == id)  # type: ignore[attr-defined]
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        elif hasattr(self.model, "key"):
+            stmt = select(self.model).where(self.model.key == id)  # type: ignore[attr-defined]
+            result = await self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        return await self.session.get(self.model, id)
 
     async def get_by_id(self, id: Any) -> Optional[ModelType]:
         """Domain Port alias for fetching single record by primary key."""

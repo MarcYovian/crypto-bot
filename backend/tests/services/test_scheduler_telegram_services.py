@@ -1679,10 +1679,11 @@ async def test_telegram_setup_account_wizard_full_flow_success(async_session: As
         assert "$15,000.00 USDT" in res_step2
         assert "my_v****2345" in res_step2
 
-        # Assert credential was persisted to database
+        # Assert credential was persisted to database (encrypted at rest)
+        from src.utils.security import decrypt_secret
         active_cred = await cred_repo.get_active_credential(acc.id)
         assert active_cred is not None
-        assert active_cred.encrypted_api_key == "my_valid_binance_api_key_12345"
+        assert decrypt_secret(active_cred.encrypted_api_key) == "my_valid_binance_api_key_12345"
 
 
 @pytest.mark.asyncio

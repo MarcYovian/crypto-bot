@@ -18,11 +18,6 @@ class IBaseRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, id: int) -> Optional[Any]:
-        """Alias for get(id)."""
-        ...
-
-    @abstractmethod
     async def get_all(self, skip: int = 0, limit: int = 100) -> List[Any]:
         """Fetch paginated records."""
         ...
@@ -54,11 +49,6 @@ class ITradeRepository(ABC):
     @abstractmethod
     async def get(self, trade_id: int) -> Optional[Any]:
         """Fetch trade by primary key ID."""
-        ...
-
-    @abstractmethod
-    async def get_by_id(self, trade_id: int) -> Optional[Any]:
-        """Fetch trade by primary key."""
         ...
 
     @abstractmethod
@@ -118,6 +108,7 @@ class ITradeRepository(ABC):
         entry_price: Decimal,
         avg_entry_price: Optional[Decimal] = None,
         opened_at: Optional[datetime] = None,
+        filled_qty: Optional[Decimal] = None,
     ) -> Optional[Any]:
         """Transition trade from WAITING_ENTRY to OPEN upon fill."""
         ...
@@ -141,7 +132,11 @@ class ITradeRepository(ABC):
 
     @abstractmethod
     async def update_partial_close(
-        self, trade_id: int, closed_qty: Decimal, remaining_qty: Decimal, realized_pnl: Decimal
+        self,
+        trade_id: int,
+        closed_qty: Decimal,
+        remaining_qty: Optional[Decimal] = None,
+        realized_pnl: Optional[Decimal] = None,
     ) -> Optional[Any]:
         """Update trade on partial TP fill."""
         ...
@@ -210,10 +205,6 @@ class IOrderRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, order_id: int) -> Optional[Any]:
-        ...
-
-    @abstractmethod
     async def get_by_exchange_order_id(self, exchange_order_id: str) -> Optional[Any]:
         """Fetch order by exchange-assigned order ID."""
         ...
@@ -278,10 +269,6 @@ class IInstrumentRepository(ABC):
 
     @abstractmethod
     async def get(self, id: int) -> Optional[Any]:
-        ...
-
-    @abstractmethod
-    async def get_by_id(self, id: int) -> Optional[Any]:
         ...
 
     @abstractmethod
@@ -542,10 +529,6 @@ class ISignalRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, signal_id: int) -> Optional[Any]:
-        ...
-
-    @abstractmethod
     async def get_by_telegram_message_id(self, message_id: int) -> Optional[Any]:
         """Fetch signal by its unique Telegram message ID."""
         ...
@@ -600,10 +583,6 @@ class ISignalProviderRepository(ABC):
 
     @abstractmethod
     async def get(self, provider_id: int) -> Optional[Any]:
-        ...
-
-    @abstractmethod
-    async def get_by_id(self, provider_id: int) -> Optional[Any]:
         ...
 
     @abstractmethod
@@ -816,6 +795,11 @@ class ITradeSummaryRepository(ABC):
     """Abstract Port for Post-trade summary metrics and performance analytics."""
 
     @abstractmethod
+    async def get(self, id: int) -> Optional[Any]:
+        """Fetch trade summary by ID."""
+        ...
+
+    @abstractmethod
     async def get_by_trade_id(self, trade_id: int) -> Optional[Any]:
         """Fetch summary metrics for a specific trade."""
         ...
@@ -832,6 +816,10 @@ class ITradeSummaryRepository(ABC):
 
     @abstractmethod
     async def create(self, schema: Any) -> Any:
+        ...
+
+    @abstractmethod
+    async def update(self, db_obj: Any, schema: Any) -> Any:
         ...
 
     @abstractmethod

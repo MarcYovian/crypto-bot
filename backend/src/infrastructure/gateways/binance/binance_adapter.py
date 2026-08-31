@@ -77,6 +77,7 @@ class BinanceExchangeAdapter(IExchangeGateway):
         side: str,
         since_timestamp_ms: Optional[int] = None,
         limit: int = 30,
+        is_sl: bool = False,
     ) -> bool:
         """Check whether historical candles touched or exceeded a target price (e.g. TP1 / SL)."""
         if not target_price or target_price <= Decimal("0"):
@@ -106,12 +107,26 @@ class BinanceExchangeAdapter(IExchangeGateway):
                 high_price = Decimal(str(candle[2]))
                 low_price = Decimal(str(candle[3]))
 
-                if side_upper in ("BUY", "LONG"):
-                    if high_price >= target:
-                        return True
+                if is_sl:
+                    # For Stop Loss:
+                    # BUY SL is below entry -> triggered when price drops to/below SL
+                    # SELL SL is above entry -> triggered when price rises to/above SL
+                    if side_upper in ("BUY", "LONG"):
+                        if low_price <= target:
+                            return True
+                    else:
+                        if high_price >= target:
+                            return True
                 else:
-                    if low_price <= target:
-                        return True
+                    # For Take Profit:
+                    # BUY TP is above entry -> reached when price rises to/above TP
+                    # SELL TP is below entry -> reached when price drops to/below TP
+                    if side_upper in ("BUY", "LONG"):
+                        if high_price >= target:
+                            return True
+                    else:
+                        if low_price <= target:
+                            return True
 
             return False
         except Exception as e:

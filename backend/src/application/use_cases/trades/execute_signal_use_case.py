@@ -248,7 +248,7 @@ class ExecuteSignalUseCase:
 
         if not getattr(cmd, "is_manual", False) and hasattr(self.exchange_gateway, "has_price_reached_target") and tp1_target:
             try:
-                res_tp = self.exchange_gateway.has_price_reached_target(sig.symbol, tp1_target, side=sig.side)
+                res_tp = self.exchange_gateway.has_price_reached_target(sig.symbol, tp1_target, side=sig.side, is_sl=False)
                 hit_tp1 = await res_tp if hasattr(res_tp, "__await__") else res_tp
                 if hit_tp1 is True:
                     logger.warning("Signal rejected: Historical kline touched TP1 (%s)", tp1_target)
@@ -286,7 +286,7 @@ class ExecuteSignalUseCase:
 
         if not getattr(cmd, "is_manual", False) and hasattr(self.exchange_gateway, "has_price_reached_target") and sig.sl_price:
             try:
-                res_sl = self.exchange_gateway.has_price_reached_target(sig.symbol, sig.sl_price, side=sig.side)
+                res_sl = self.exchange_gateway.has_price_reached_target(sig.symbol, sig.sl_price, side=sig.side, is_sl=True)
                 hit_sl = await res_sl if hasattr(res_sl, "__await__") else res_sl
                 if hit_sl is True:
                     logger.warning("Signal rejected: Historical kline touched SL (%s)", sig.sl_price)

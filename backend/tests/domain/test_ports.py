@@ -52,7 +52,6 @@ def test_concrete_mock_implementation_of_port():
 
     class MockTradeRepo(ITradeRepository):
         async def get(self, trade_id: int): return {"id": trade_id}
-        async def get_by_id(self, trade_id: int): return {"id": trade_id}
         async def get_detail(self, trade_id: int): return {"id": trade_id}
         async def get_with_instrument(self, trade_id: int): return {"id": trade_id}
         async def get_active_trade_by_instrument(self, instrument_id: int): return None
@@ -63,11 +62,11 @@ def test_concrete_mock_implementation_of_port():
         async def get_active_trades(self, account_id=None): return []
         async def get_active_trades_with_instrument(self, account_id=None): return []
         async def get_expired_waiting_trades(self, max_hours=4): return []
-        async def update_entry_fill(self, trade_id, entry_price, avg_entry_price=None, opened_at=None): return None
+        async def update_entry_fill(self, trade_id, entry_price, avg_entry_price=None, opened_at=None, filled_qty=None): return None
         async def update_sl_price(self, trade_id, new_sl_price): return None
         async def update_stop_loss(self, trade_id, new_sl_price): return None
         async def reduce_position_qty(self, trade_id, closed_qty, is_closed=False): return None
-        async def update_partial_close(self, trade_id, closed_qty, remaining_qty, realized_pnl): return None
+        async def update_partial_close(self, trade_id, closed_qty, remaining_qty=None, realized_pnl=None): return None
         async def update_trade_status(self, trade_id, schema): return None
         async def get_closed_trades_history(self, account_id, skip=0, limit=50, start_date=None, end_date=None): return []
         async def get_active_positions_with_relations(self, account_id: int): return []
@@ -90,7 +89,7 @@ def test_concrete_mock_exchange_gateway_satisfies_contract():
         async def fetch_ticker(self, symbol): return {}
         async def fetch_ticker_price(self, symbol): return Decimal("50000")
         async def fetch_klines(self, symbol, timeframe="1m", since=None, limit=30): return []
-        async def has_price_reached_target(self, symbol, target_price, side, since_timestamp_ms=None, limit=30): return False
+        async def has_price_reached_target(self, symbol, target_price, side, since_timestamp_ms=None, limit=30, is_sl=False): return False
         async def set_leverage(self, symbol, leverage): return {}
         async def set_margin_mode(self, symbol, margin_mode): return {}
         async def set_position_mode(self, dual_side_position=False): return {}

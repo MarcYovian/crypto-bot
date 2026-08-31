@@ -8,6 +8,7 @@ from src.infrastructure.persistence.connection import Base
 from src.infrastructure.persistence.models import Exchange, TradingAccount, TradingCredential
 from src.infrastructure.persistence.repositories.trading_credential_repository import TradingCredentialRepository
 from src.presentation.api.schemas.master import TradingCredentialCreate, TradingCredentialUpdate
+from src.utils.security import decrypt_secret
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -45,32 +46,40 @@ async def cred_env(async_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_credential_create_and_active_retrieval(async_session: AsyncSession, cred_env: dict):
-    """Test creating a trading credential and fetching the active one."""
+    """Test creating a trading credential, checking encryption at rest, and fetching active decrypted key."""
     env = cred_env
     repo = TradingCredentialRepository(async_session)
+
+    plain_api_key = "AKIA1234567890TESTKEY"
+    plain_secret_key = "SECRET9876543210TESTSECRET"
 
     schema = TradingCredentialCreate(
         account_id=env["account"].id,
         key_name="Initial Binance Key",
-        api_key="AKIA1234567890TESTKEY",
-        secret_key="SECRET9876543210TESTSECRET",
+        api_key=plain_api_key,
+        secret_key=plain_secret_key,
         key_version=1,
         is_active=True,
     )
     cred = await repo.create(schema)
     assert cred.id is not None
-    assert cred.encrypted_api_key == "AKIA1234567890TESTKEY"
-    assert cred.encrypted_secret_key == "SECRET9876543210TESTSECRET"
+    # Verify ciphertext is stored in DB at rest (not plaintext)
+    assert cred.encrypted_api_key != plain_api_key
+    assert cred.encrypted_secret_key != plain_secret_key
+    # Verify decryption recovers exact original plaintext
+    assert decrypt_secret(cred.encrypted_api_key) == plain_api_key
+    assert decrypt_secret(cred.encrypted_secret_key) == plain_secret_key
     assert cred.is_active is True
 
     active = await repo.get_active_credential(env["account"].id)
     assert active is not None
     assert active.id == cred.id
+    assert decrypt_secret(active.encrypted_api_key) == plain_api_key
 
 
 @pytest.mark.asyncio
 async def test_credential_rotation_lifecycle(async_session: AsyncSession, cred_env: dict):
-    """Test key rotation: deactivating old credentials before creating a new active key."""
+    """Test key rotation: deactivating old credentials before creating a new active key with encryption."""
     env = cred_env
     repo = TradingCredentialRepository(async_session)
 
@@ -110,12 +119,13 @@ async def test_credential_rotation_lifecycle(async_session: AsyncSession, cred_e
     assert active is not None
     assert active.id == cred_v2.id
     assert active.key_version == 2
-    assert active.encrypted_api_key == "NEW_API_KEY_222222"
+    assert active.encrypted_api_key != "NEW_API_KEY_222222"
+    assert decrypt_secret(active.encrypted_api_key) == "NEW_API_KEY_222222"
 
 
 @pytest.mark.asyncio
 async def test_credential_update_keys(async_session: AsyncSession, cred_env: dict):
-    """Test updating existing credential attributes."""
+    """Test updating existing credential attributes with encryption."""
     env = cred_env
     repo = TradingCredentialRepository(async_session)
 
@@ -137,5 +147,7 @@ async def test_credential_update_keys(async_session: AsyncSession, cred_env: dic
     )
     updated = await repo.update(cred, update_dto)
     assert updated.key_name == "Updated Key Name"
-    assert updated.encrypted_api_key == "UPDATED_API_KEY_9999"
-    assert updated.encrypted_secret_key == "UPDATED_SECRET_KEY_9999"
+    assert updated.encrypted_api_key != "UPDATED_API_KEY_9999"
+    assert decrypt_secret(updated.encrypted_api_key) == "UPDATED_API_KEY_9999"
+    assert decrypt_secret(updated.encrypted_secret_key) == "UPDATED_SECRET_KEY_9999"
+

@@ -72,6 +72,15 @@ def test_trade_and_order_statuses():
     assert ord_st.is_filled is True
     assert ord_st.is_terminal is True
 
+    # OrderStatus CANCELED vs CANCELLED alias tests
+    assert OrderStatus.CANCELED == OrderStatus.CANCELLED
+    assert OrderStatus.CANCELLED is OrderStatus.CANCELED
+    assert OrderStatus.CANCELLED.value == "CANCELED"
+    assert OrderStatus.from_str("CANCELLED") == OrderStatus.CANCELED
+    assert OrderStatus.from_str("canceled") == OrderStatus.CANCELED
+    assert OrderStatus.CANCELLED.is_terminal is True
+    assert OrderStatus.CANCELED.is_terminal is True
+
     # Order Purpose tests
     purp = OrderPurpose.from_str("TP1")
     assert purp == OrderPurpose.TP1

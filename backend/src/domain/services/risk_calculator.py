@@ -84,12 +84,13 @@ class RiskCalculatorDomainService:
             if tp_targets is None:
                 tp_targets = getattr(signal_dto, "tp_targets", None)
             raw_side = getattr(signal_dto, "side", None)
-            if raw_side is not None and (isinstance(raw_side, (str, OrderSide)) or not isinstance(raw_side, MagicMock if 'MagicMock' in globals() else object)):
-                try:
-                    if str(raw_side).upper() in ("BUY", "LONG", "SELL", "SHORT"):
+            if raw_side is not None:
+                if isinstance(raw_side, OrderSide):
+                    side = raw_side
+                elif isinstance(raw_side, str):
+                    clean_side = raw_side.strip().upper()
+                    if clean_side in ("BUY", "LONG", "SELL", "SHORT"):
                         side = raw_side
-                except Exception:
-                    pass
 
 
         if instrument is not None:

@@ -17,6 +17,10 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
     def __init__(self, session: AsyncSession):
         super().__init__(TradeSummary, session)
 
+    async def get(self, id: Any) -> Optional[TradeSummary]:
+        """Fetch a single record by primary key (trade_id)."""
+        return await self.get_by_trade_id(int(id))
+
     async def get_by_trade_id(self, trade_id: int) -> Optional[TradeSummary]:
         """Fetch summary performance metrics for a specific trade.
         

@@ -1,9 +1,10 @@
 """Data-access repository for TradingSignal entity."""
 
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from src.infrastructure.persistence.models import TradingSignal
 from src.presentation.api.schemas.signal import TradingSignalCreate, TradingSignalUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
@@ -14,6 +15,19 @@ class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, Tradin
 
     def __init__(self, session: AsyncSession):
         super().__init__(TradingSignal, session)
+
+    async def get(self, id: Any) -> Optional[TradingSignal]:
+        """Fetch signal by primary key with eager-loaded relationships."""
+        stmt = (
+            select(TradingSignal)
+            .options(
+                selectinload(TradingSignal.instrument),
+                selectinload(TradingSignal.provider),
+            )
+            .where(TradingSignal.id == id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_by_telegram_message_id(
         self, message_id: int

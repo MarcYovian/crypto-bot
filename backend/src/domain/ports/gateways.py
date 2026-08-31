@@ -53,6 +53,7 @@ class IExchangeGateway(ABC):
         side: str,
         since_timestamp_ms: Optional[int] = None,
         limit: int = 30,
+        is_sl: bool = False,
     ) -> bool:
         """Check whether historical candles touched or exceeded a target price (e.g. TP1 / SL)."""
         ...

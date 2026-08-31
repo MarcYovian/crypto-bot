@@ -12,7 +12,7 @@ from src.infrastructure.persistence.connection import init_db
 from src.infrastructure.di.container import container
 from src.infrastructure.scheduler import SchedulerService
 from src.presentation.telegram.bot_controller import TelegramBotController
-from src.utils.security import get_password_hash
+from src.utils.security import get_password_hash, decrypt_secret
 
 logger = logging.getLogger("BOOTSTRAP")
 
@@ -27,8 +27,8 @@ async def initialize_system_defaults() -> None:
     async with container.session_scope() as session:
         # 1. Ensure default admin user
         user_repo = container.get_user_repo(session)
-        default_user = getattr(settings, "DEFAULT_ADMIN_USERNAME", "admin")
-        default_pass = getattr(settings, "DEFAULT_ADMIN_PASSWORD", "AdminPassword123!")
+        default_user = settings.DEFAULT_ADMIN_USERNAME
+        default_pass = settings.DEFAULT_ADMIN_PASSWORD
         await user_repo.ensure_default_admin(
             default_username=default_user,
             default_password_hash=get_password_hash(default_pass),
@@ -50,9 +50,11 @@ async def initialize_system_defaults() -> None:
             active_cred = await cred_repo.get_active_credential(active_acc.id)
             if active_cred and active_cred.encrypted_api_key and active_cred.encrypted_secret_key:
                 is_testnet = (active_acc.environment.upper() == "TESTNET")
+                raw_api_key = decrypt_secret(active_cred.encrypted_api_key) or ""
+                raw_secret_key = decrypt_secret(active_cred.encrypted_secret_key) or ""
                 container.exchange_gateway.reconfigure(
-                    api_key=active_cred.encrypted_api_key,
-                    secret_key=active_cred.encrypted_secret_key,
+                    api_key=raw_api_key,
+                    secret_key=raw_secret_key,
                     testnet=is_testnet,
                 )
                 logger.info(

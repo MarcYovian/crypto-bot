@@ -1613,37 +1613,77 @@ async def test_binance_client_has_price_reached_target_logic():
     ]
     connector.execute_rest = AsyncMock(return_value=mock_candles)
 
-    # 1. BUY test: Target 62,000 should return True
-    hit_buy = await adapter.has_price_reached_target(
+    # 1. BUY TP test: Target 62,000 should return True (high reached 62,150 >= 62,000)
+    hit_buy_tp = await adapter.has_price_reached_target(
         symbol="BTC/USDT",
         target_price=Decimal("62000.0"),
         side="BUY",
+        is_sl=False,
     )
-    assert hit_buy is True
+    assert hit_buy_tp is True
 
-    # 2. BUY test: Target 63,000 should return False (max high was 62,150)
-    miss_buy = await adapter.has_price_reached_target(
+    # 2. BUY TP test: Target 63,000 should return False (max high was 62,150)
+    miss_buy_tp = await adapter.has_price_reached_target(
         symbol="BTC/USDT",
         target_price=Decimal("63000.0"),
         side="BUY",
+        is_sl=False,
     )
-    assert miss_buy is False
+    assert miss_buy_tp is False
 
-    # 3. SELL test: Target 59,850 should return True (low reached 59,800 <= 59,850)
-    hit_sell = await adapter.has_price_reached_target(
+    # 3. BUY SL test: SL 59,850 should return True (min low reached 59,800 <= 59,850)
+    hit_buy_sl = await adapter.has_price_reached_target(
+        symbol="BTC/USDT",
+        target_price=Decimal("59850.0"),
+        side="BUY",
+        is_sl=True,
+    )
+    assert hit_buy_sl is True
+
+    # 4. BUY SL test: SL 59,500 should return False (min low was 59,800 > 59,500)
+    miss_buy_sl = await adapter.has_price_reached_target(
+        symbol="BTC/USDT",
+        target_price=Decimal("59500.0"),
+        side="BUY",
+        is_sl=True,
+    )
+    assert miss_buy_sl is False
+
+    # 5. SELL TP test: Target 59,850 should return True (low reached 59,800 <= 59,850)
+    hit_sell_tp = await adapter.has_price_reached_target(
         symbol="BTC/USDT",
         target_price=Decimal("59850.0"),
         side="SELL",
+        is_sl=False,
     )
-    assert hit_sell is True
+    assert hit_sell_tp is True
 
-    # 4. SELL test: Target 59,500 should return False (min low was 59,800)
-    miss_sell = await adapter.has_price_reached_target(
+    # 6. SELL TP test: Target 59,500 should return False (min low was 59,800)
+    miss_sell_tp = await adapter.has_price_reached_target(
         symbol="BTC/USDT",
         target_price=Decimal("59500.0"),
         side="SELL",
+        is_sl=False,
     )
-    assert miss_sell is False
+    assert miss_sell_tp is False
+
+    # 7. SELL SL test: SL 62,000 should return True (max high reached 62,150 >= 62,000)
+    hit_sell_sl = await adapter.has_price_reached_target(
+        symbol="BTC/USDT",
+        target_price=Decimal("62000.0"),
+        side="SELL",
+        is_sl=True,
+    )
+    assert hit_sell_sl is True
+
+    # 8. SELL SL test: SL 63,000 should return False (max high was 62,150 < 63,000)
+    miss_sell_sl = await adapter.has_price_reached_target(
+        symbol="BTC/USDT",
+        target_price=Decimal("63000.0"),
+        side="SELL",
+        is_sl=True,
+    )
+    assert miss_sell_sl is False
 
     await adapter.close()
 

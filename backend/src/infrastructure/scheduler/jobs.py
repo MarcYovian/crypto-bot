@@ -56,6 +56,7 @@ class SchedulerJobs:
         exchange_gateway: Optional[Any] = None,
         notification_gateway: Optional[INotificationGateway] = None,
         session_factory: Optional[async_sessionmaker[AsyncSession]] = None,
+        session: Optional[AsyncSession] = None,
     ) -> None:
         self.daily_risk_repo = daily_risk_repo
         self.trading_account_repo = trading_account_repo
@@ -73,24 +74,26 @@ class SchedulerJobs:
         self.notification_gateway = notification_gateway
         self.session_factory = session_factory or AsyncSessionLocal
 
+        # Capture bound session if explicitly passed or already present in injected repositories
+        self.session = session
+        if self.session is None:
+            for repo in (
+                self.daily_risk_repo,
+                self.trade_repo,
+                self.order_repo,
+                self.instrument_repo,
+                self.bot_log_repo,
+                self.bot_setting_repo,
+            ):
+                if repo and getattr(repo, "session", None):
+                    self.session = repo.session
+                    break
+
     @asynccontextmanager
     async def _get_session(self) -> AsyncIterator[AsyncSession]:
         """Provide a scoped database session per job execution."""
-        existing_session = None
-        for repo in (
-            self.daily_risk_repo,
-            self.trade_repo,
-            self.order_repo,
-            self.instrument_repo,
-            self.bot_log_repo,
-            self.bot_setting_repo,
-        ):
-            if repo and hasattr(repo, "session") and repo.session:
-                existing_session = repo.session
-                break
-
-        if existing_session is not None:
-            yield existing_session
+        if self.session is not None:
+            yield self.session
         else:
             factory = self.session_factory or AsyncSessionLocal
             async with factory() as session:

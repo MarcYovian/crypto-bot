@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
+from config.settings import settings
+from src.presentation.api.middleware.rate_limiter import RateLimitMiddleware
 from src.presentation.api.routers.auth import router as auth_router
 from src.presentation.api.routers.analytics import router as analytics_router
 from src.presentation.api.routers.trades import router as trades_router
@@ -37,11 +39,14 @@ def create_app(lifespan: Optional[Any] = None) -> FastAPI:
     # Configure CORS for frontend dashboard (Next.js / Vite / React)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # In production, configure specific frontend domains
+        allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate Limiting Middleware
+    app.add_middleware(RateLimitMiddleware)
 
     # Custom Exception Handlers for consistent API error schemas
     @app.exception_handler(RequestValidationError)

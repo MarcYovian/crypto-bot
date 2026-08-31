@@ -21,6 +21,7 @@ from src.presentation.api.schemas.master import (
     ExchangeCreate,
     SyncInstrumentsResponseDTO,
 )
+from src.utils.security import decrypt_secret
 
 
 logger = logging.getLogger(__name__)
@@ -61,9 +62,11 @@ class SyncInstrumentsUseCase:
                         if acc and acc.environment:
                             is_testnet = acc.environment.upper() == "TESTNET"
                     if hasattr(self.exchange_gateway, "reconfigure"):
+                        raw_api = decrypt_secret(active_cred.encrypted_api_key) or ""
+                        raw_sec = decrypt_secret(active_cred.encrypted_secret_key) or ""
                         self.exchange_gateway.reconfigure(
-                            api_key=active_cred.encrypted_api_key,
-                            secret_key=active_cred.encrypted_secret_key,
+                            api_key=raw_api,
+                            secret_key=raw_sec,
                             testnet=is_testnet,
                         )
             except Exception as e:

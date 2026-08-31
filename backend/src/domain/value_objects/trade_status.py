@@ -49,7 +49,7 @@ class OrderStatus(str, Enum):
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
     CANCELED = "CANCELED"
-    CANCELLED = "CANCELLED"  # Alias
+    CANCELLED = "CANCELED"  # Canonical alias pointing to CANCELED
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
     PENDING = "PENDING"
@@ -67,7 +67,6 @@ class OrderStatus(str, Enum):
         return self in (
             OrderStatus.FILLED,
             OrderStatus.CANCELED,
-            OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
             OrderStatus.EXPIRED,
         )

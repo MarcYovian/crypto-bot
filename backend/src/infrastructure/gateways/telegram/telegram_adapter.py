@@ -88,7 +88,31 @@ class TelegramNotificationAdapter(INotificationGateway):
             )
 
         side_emoji = "🟢 BUY (LONG)" if side and side.upper() == "BUY" else "🔴 SELL (SHORT)"
-        tp_lines = "\n".join([f"  🎯 <b>TP{i+1}:</b> {tp}" for i, tp in enumerate(tp_targets or [])])
+        
+        entry_val = None
+        if entry_range:
+            try:
+                parts = [p.strip() for p in str(entry_range).split("-") if p.strip()]
+                entry_val = Decimal(parts[0]) if parts else None
+            except Exception:
+                entry_val = None
+
+        sl_val = Decimal(str(sl)) if sl is not None else None
+        stop_dist_conf = abs(entry_val - sl_val) if (entry_val and sl_val) else None
+
+        tp_lines_conf = []
+        for i, tp in enumerate(tp_targets or []):
+            try:
+                tp_dec = Decimal(str(tp))
+                rrr_tag = ""
+                if stop_dist_conf and stop_dist_conf > Decimal("0") and entry_val:
+                    rrr_val = abs(tp_dec - entry_val) / stop_dist_conf
+                    rrr_tag = f" (<b>RRR 1:{rrr_val:.2f}</b>)"
+                tp_lines_conf.append(f"  🎯 <b>TP{i+1}:</b> {tp}{rrr_tag}")
+            except Exception:
+                tp_lines_conf.append(f"  🎯 <b>TP{i+1}:</b> {tp}")
+
+        tp_section_conf = "\n".join(tp_lines_conf) if tp_lines_conf else "  <i>N/A</i>"
         conf_str = f"\n📊 <b>Confidence:</b> {float(confidence)*100:.1f}%" if confidence else ""
 
         formatted_text = (
@@ -97,7 +121,7 @@ class TelegramNotificationAdapter(INotificationGateway):
             f"📈 <b>Action:</b> {side_emoji}\n"
             f"🎯 <b>Entry Range:</b> {entry_range or 'N/A'}\n"
             f"🛡️ <b>Stop Loss:</b> {sl}\n"
-            f"<b>Take Profit Targets:</b>\n{tp_lines}"
+            f"<b>Take Profit Targets:</b>\n{tp_section_conf}"
             f"{conf_str}\n\n"
             f"<i>Silakan setujui atau tolak sinyal ini:</i>"
         )
@@ -159,6 +183,10 @@ class TelegramNotificationAdapter(INotificationGateway):
         risk_amt_dec = Decimal(str(risk_amount)) if risk_amount is not None else (stop_dist * size_dec)
         risk_pct_str = f"{float(risk_percent):.1f}%" if risk_percent is not None else "2.0%"
 
+        # RRR Calculations & Formatting
+        weighted_rrr = Decimal("0")
+        total_weight = Decimal("0")
+
         tp_lines = []
         if tp_allocations:
             for alloc in tp_allocations:
@@ -169,17 +197,42 @@ class TelegramNotificationAdapter(INotificationGateway):
                 pct = raw_pct if raw_pct >= Decimal("1") else (raw_pct * Decimal("100"))
                 profit = abs(p - entry_dec) * q
                 profit_pct = (abs(p - entry_dec) / entry_dec * 100) if entry_dec > Decimal("0") else Decimal("0")
+                
+                rrr_tag = ""
+                if stop_dist > Decimal("0"):
+                    rrr_val = abs(p - entry_dec) / stop_dist
+                    rrr_tag = f" | <b>RRR 1:{rrr_val:.2f}</b>"
+                    w = pct / Decimal("100")
+                    weighted_rrr += rrr_val * w
+                    total_weight += w
+
                 tp_lines.append(
                     f"  • <b>TP{lvl} ({pct:.0f}% lot):</b> ${self.formatter.format_crypto_price(p, price_precision)} "
-                    f"(+{profit_pct:.2f}%) ➔ <b>+${profit:,.2f} USDT</b>"
+                    f"(+{profit_pct:.2f}%){rrr_tag} ➔ <b>+${profit:,.2f} USDT</b>"
                 )
         elif tp_targets:
+            weights = [Decimal("0.5"), Decimal("0.3"), Decimal("0.2")] if len(tp_targets) == 3 else [Decimal("1.0") / Decimal(str(len(tp_targets)))] * len(tp_targets)
             for i, tp in enumerate(tp_targets):
                 tp_dec = Decimal(str(tp))
                 tp_pct = (abs(tp_dec - entry_dec) / entry_dec * 100) if entry_dec > Decimal("0") else Decimal("0")
-                tp_lines.append(f"  • <b>TP{i+1}:</b> ${self.formatter.format_crypto_price(tp_dec, price_precision)} (+{tp_pct:.2f}%)")
+                rrr_tag = ""
+                if stop_dist > Decimal("0"):
+                    rrr_val = abs(tp_dec - entry_dec) / stop_dist
+                    rrr_tag = f" | <b>RRR 1:{rrr_val:.2f}</b>"
+                    w = weights[i] if i < len(weights) else Decimal("0")
+                    weighted_rrr += rrr_val * w
+                    total_weight += w
+                tp_lines.append(f"  • <b>TP{i+1}:</b> ${self.formatter.format_crypto_price(tp_dec, price_precision)} (+{tp_pct:.2f}%){rrr_tag}")
 
         tp_section = "\n".join(tp_lines) if tp_lines else "  <i>Tidak ada target Take Profit</i>"
+
+        rrr_summary_line = ""
+        if total_weight > Decimal("0") and weighted_rrr > Decimal("0"):
+            avg_rrr = weighted_rrr / total_weight
+            rrr_summary_line = f"• <b>Risk-to-Reward (RRR Avg):</b> 1:{avg_rrr:.2f}\n"
+        elif stop_dist > Decimal("0") and tp_targets and len(tp_targets) == 1:
+            single_rrr = abs(Decimal(str(tp_targets[0])) - entry_dec) / stop_dist
+            rrr_summary_line = f"• <b>Risk-to-Reward (RRR):</b> 1:{single_rrr:.2f}\n"
 
         downscale_line = ""
         if is_leverage_downscaled and requested_leverage:
@@ -198,6 +251,7 @@ class TelegramNotificationAdapter(INotificationGateway):
             f"🛡️ <b>RISK MANAGEMENT (STRICT 2.0% GUARD):</b>\n"
             f"• <b>Stop Loss:</b> ${self.formatter.format_crypto_price(sl_dec, price_precision)} ({sl_sign}{sl_pct:.2f}%)\n"
             f"• <b>Maksimal Kerugian (SL):</b> -${risk_amt_dec:,.2f} USDT ({risk_pct_str} Modal)\n"
+            f"{rrr_summary_line}"
             f"{downscale_line}\n"
             f"🎯 <b>TARGET TAKE PROFIT:</b>\n"
             f"{tp_section}\n\n"

@@ -38,7 +38,7 @@ class ApproveSignalUseCase:
             raise SignalNotFoundError(f"Signal #{cmd.signal_id} not found.")
 
         # 1. Update status in database
-        await self.signal_repo.update(signal, TradingSignalUpdate(status="APPROVED"))
+        await self.signal_repo.update(signal, TradingSignalUpdate(confirmation_status="APPROVED"))
 
         # 2. Build ParsedSignalDTO
         sym = signal.instrument.symbol if signal.instrument else "BTCUSDT"

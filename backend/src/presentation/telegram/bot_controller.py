@@ -95,6 +95,17 @@ class TelegramBotController:
             )
             signal_dto = await self.parse_signal_use_case.execute(parse_cmd)
 
+            if not signal_dto.is_valid or not signal_dto.id:
+                if signal_dto.error_message and chat_id and self.notification_gateway:
+                    try:
+                        await self.notification_gateway.send_message(
+                            chat_id=chat_id,
+                            text=f"⚠️ <b>Format Sinyal Ditolak:</b> {signal_dto.error_message}",
+                        )
+                    except Exception:
+                        pass
+                return None
+
             # Send interactive confirmation card
             if self.notification_gateway and hasattr(self.notification_gateway, "send_signal_confirmation"):
                 entry_range_str = (
@@ -149,7 +160,18 @@ class TelegramBotController:
         # 2. Approve Signal Callback
         if clean_cb.startswith(("approve_signal:", "sig_app_", "APPROVE_")):
             try:
-                sig_id = int(clean_cb.split(":")[-1] if ":" in clean_cb else clean_cb.split("_")[-1])
+                raw_id = clean_cb.split(":")[-1] if ":" in clean_cb else clean_cb.split("_")[-1]
+                if not raw_id.isdigit():
+                    logger.warning("Invalid signal ID received in approve callback: %s", clean_cb)
+                    msg = "❌ <b>ID sinyal tidak valid atau sinyal tidak ditemukan.</b>"
+                    if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
+                        try:
+                            await self.notification_gateway.edit_message_text(chat_id=chat_id, message_id=message_id, text=msg)
+                        except Exception:
+                            pass
+                    return msg
+
+                sig_id = int(raw_id)
                 approve_cmd = ApproveSignalCommand(signal_id=sig_id)
                 res = await self.approve_signal_use_case.execute(approve_cmd)
                 status_text = "✅ <b>SIGNAL APPROVED & EXECUTING</b>" if res.status in ("EXECUTED", "APPROVED") else f"⚠️ {res.message or 'Failed'}"
@@ -165,12 +187,33 @@ class TelegramBotController:
                 return status_text
             except Exception as exc:
                 logger.error("Error approving signal via callback: %s", exc)
-                return f"❌ Gagal menyetujui sinyal: {exc}"
+                err_text = f"❌ <b>GAGAL MENYETUJUI SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
+                if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
+                    try:
+                        await self.notification_gateway.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=err_text,
+                        )
+                    except Exception as e:
+                        logger.debug("Could not edit message on approve error: %s", e)
+                return err_text
 
         # 3. Reject Signal Callback
         if clean_cb.startswith(("reject_signal:", "sig_rej_", "REJECT_")):
             try:
-                sig_id = int(clean_cb.split(":")[-1] if ":" in clean_cb else clean_cb.split("_")[-1])
+                raw_id = clean_cb.split(":")[-1] if ":" in clean_cb else clean_cb.split("_")[-1]
+                if not raw_id.isdigit():
+                    logger.warning("Invalid signal ID received in reject callback: %s", clean_cb)
+                    msg = "❌ <b>ID sinyal tidak valid atau sinyal tidak ditemukan.</b>"
+                    if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
+                        try:
+                            await self.notification_gateway.edit_message_text(chat_id=chat_id, message_id=message_id, text=msg)
+                        except Exception:
+                            pass
+                    return msg
+
+                sig_id = int(raw_id)
                 reject_cmd = RejectSignalCommand(signal_id=sig_id, reason="REJECTED_BY_OPERATOR")
                 reject_res = await self.reject_signal_use_case.execute(reject_cmd)
                 if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
@@ -185,7 +228,17 @@ class TelegramBotController:
                 return "❌ Signal rejected."
             except Exception as exc:
                 logger.error("Error rejecting signal via callback: %s", exc)
-                return f"❌ Gagal menolak sinyal: {exc}"
+                err_text = f"❌ <b>GAGAL MENOLAK SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
+                if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
+                    try:
+                        await self.notification_gateway.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=err_text,
+                        )
+                    except Exception as e:
+                        logger.debug("Could not edit message on reject error: %s", e)
+                return err_text
 
 
 

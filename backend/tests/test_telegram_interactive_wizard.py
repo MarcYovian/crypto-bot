@@ -98,11 +98,12 @@ async def test_telegram_setup_wizard_full_flow(async_session: AsyncSession, tg_e
         assert "$5,000.00" in str(res3)
         assert str(chat_id) not in wizard_states
 
-    # Verify credential was saved in DB
+    # Verify credential was saved in DB (encrypted at rest)
+    from src.utils.security import decrypt_secret
     cred_repo = TradingCredentialRepository(async_session)
     active_cred = await cred_repo.get_active_credential(env["account"].id)
     assert active_cred is not None
-    assert active_cred.encrypted_api_key == "mock_api_key_1234567890"
+    assert decrypt_secret(active_cred.encrypted_api_key) == "mock_api_key_1234567890"
 
 
 @pytest.mark.asyncio

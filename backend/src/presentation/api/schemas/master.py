@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Optional, List
 from pydantic import Field, field_validator
 from src.presentation.api.schemas.common import BaseSchema, TimestampMixin
+from src.utils.security import decrypt_secret
 
 
 # =====================================================================
@@ -116,7 +117,7 @@ class TradingCredentialRead(TradingCredentialBase, TimestampMixin):
     def from_orm_model(cls, obj) -> "TradingCredentialRead":
         masked = None
         if hasattr(obj, "encrypted_api_key") and obj.encrypted_api_key:
-            raw = str(obj.encrypted_api_key)
+            raw = decrypt_secret(str(obj.encrypted_api_key)) or ""
             masked = f"{raw[:4]}****{raw[-4:]}" if len(raw) >= 8 else "****"
         return cls(
             id=obj.id,

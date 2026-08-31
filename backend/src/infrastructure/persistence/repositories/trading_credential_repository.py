@@ -8,6 +8,7 @@ from src.infrastructure.persistence.models import TradingCredential
 from src.presentation.api.schemas.master import TradingCredentialCreate, TradingCredentialUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
 from src.domain.ports.repositories import ITradingCredentialRepository
+from src.utils.security import encrypt_secret, decrypt_secret
 
 
 class TradingCredentialRepository(
@@ -15,7 +16,6 @@ class TradingCredentialRepository(
     ITradingCredentialRepository,
 ):
     """CRUD repository for the ``trading_credentials`` table."""
-
 
     def __init__(self, session: AsyncSession):
         super().__init__(TradingCredential, session)
@@ -31,9 +31,9 @@ class TradingCredentialRepository(
         raw_secret_key = data.pop("secret_key", None)
         raw_passphrase = data.pop("passphrase", None)
 
-        enc_api = data.pop("encrypted_api_key", None) or raw_api_key or ""
-        enc_sec = data.pop("encrypted_secret_key", None) or raw_secret_key or ""
-        enc_pass = data.pop("encrypted_passphrase", None) or raw_passphrase
+        enc_api = data.pop("encrypted_api_key", None) or (encrypt_secret(raw_api_key) if raw_api_key else "")
+        enc_sec = data.pop("encrypted_secret_key", None) or (encrypt_secret(raw_secret_key) if raw_secret_key else "")
+        enc_pass = data.pop("encrypted_passphrase", None) or (encrypt_secret(raw_passphrase) if raw_passphrase else None)
 
         db_obj = TradingCredential(
             account_id=data.get("account_id"),
@@ -57,17 +57,20 @@ class TradingCredentialRepository(
             data = schema.copy()
 
         if "api_key" in data:
-            db_obj.encrypted_api_key = data.pop("api_key")
+            raw_key = data.pop("api_key")
+            db_obj.encrypted_api_key = encrypt_secret(raw_key) if raw_key else ""
         if "encrypted_api_key" in data:
             db_obj.encrypted_api_key = data.pop("encrypted_api_key")
 
         if "secret_key" in data:
-            db_obj.encrypted_secret_key = data.pop("secret_key")
+            raw_sec = data.pop("secret_key")
+            db_obj.encrypted_secret_key = encrypt_secret(raw_sec) if raw_sec else ""
         if "encrypted_secret_key" in data:
             db_obj.encrypted_secret_key = data.pop("encrypted_secret_key")
 
         if "passphrase" in data:
-            db_obj.encrypted_passphrase = data.pop("passphrase")
+            raw_pass = data.pop("passphrase")
+            db_obj.encrypted_passphrase = encrypt_secret(raw_pass) if raw_pass else None
         if "encrypted_passphrase" in data:
             db_obj.encrypted_passphrase = data.pop("encrypted_passphrase")
 
