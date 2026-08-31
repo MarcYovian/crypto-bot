@@ -12,6 +12,7 @@ from src.application.dto.trade_commands import (
     TradeExecutionResultDTO,
 )
 from src.application.use_cases.trades.place_bracket_orders_use_case import PlaceBracketOrdersUseCase
+from config.settings import settings
 from src.domain.entities.risk import PositionSizingInput
 from src.domain.events.trade_events import (
     TradeOpenedEvent,
@@ -22,6 +23,7 @@ from src.domain.exceptions import (
     ExchangeError,
     ExchangeAuthError,
     InsufficientMarginError,
+    InsufficientMarginRiskError,
     RateLimitError,
     MaxRiskExceededError,
     PairAlreadyActiveError,
@@ -150,23 +152,40 @@ class ExecuteSignalUseCase:
         # ---------------------------------------------------------------------
         # Step 3: Real-time Wallet Balance & Circuit Breaker Check
         # ---------------------------------------------------------------------
-        wallet_balance = Decimal("10000.0")  # Safe fallback for mock tests
+        wallet_balance = Decimal("10000.0")  # Total balance for risk budget
+        free_margin = Decimal("10000.0")     # Free available margin for order collateral
         if self.exchange_gateway:
             try:
                 bal_data = await self.exchange_gateway.fetch_balance()
-                raw_bal = (
-                    bal_data.get("free_margin")
-                    or bal_data.get("total_wallet_balance")
-                    or (bal_data.get("free", {}).get("USDT") if isinstance(bal_data.get("free"), dict) else None)
+                
+                tot_val = (
+                    bal_data.get("total_wallet_balance")
                     or (bal_data.get("total", {}).get("USDT") if isinstance(bal_data.get("total"), dict) else None)
+                    or (bal_data.get("assets", {}).get("USDT", {}).get("total") if isinstance(bal_data.get("assets"), dict) else None)
                 )
-                if raw_bal is None or Decimal(str(raw_bal)) <= Decimal("0"):
+                free_val = (
+                    bal_data.get("free_margin")
+                    or (bal_data.get("free", {}).get("USDT") if isinstance(bal_data.get("free"), dict) else None)
+                    or (bal_data.get("assets", {}).get("USDT", {}).get("free") if isinstance(bal_data.get("assets"), dict) else None)
+                )
+
+                if tot_val is not None:
+                    wallet_balance = Decimal(str(tot_val))
+                elif free_val is not None:
+                    wallet_balance = Decimal(str(free_val))
+
+                if free_val is not None:
+                    free_margin = Decimal(str(free_val))
+                else:
+                    free_margin = wallet_balance
+
+                if wallet_balance <= Decimal("0"):
                     raise ExchangeError("Gagal mengambil saldo bursa (saldo kosong atau bernilai 0 USDT).")
-                wallet_balance = Decimal(str(raw_bal))
 
             except ExchangeAuthError:
                 logger.warning("Exchange unauthenticated in fetch_balance, using default wallet balance.")
                 wallet_balance = Decimal("10000.0")
+                free_margin = Decimal("10000.0")
             except ExchangeError:
                 raise
             except Exception as e:
@@ -378,8 +397,14 @@ class ExecuteSignalUseCase:
             if wl_item and getattr(wl_item, "max_leverage", None):
                 effective_leverage = min(effective_leverage, wl_item.max_leverage)
 
+        auto_margin_capping_enabled = getattr(settings, "AUTO_MARGIN_CAPPING", True)
+        margin_buffer = Decimal(str(getattr(settings, "MARGIN_SAFETY_BUFFER", 0.95)))
+
         risk_res = self.risk_calc.calculate_position_size(
             wallet_balance=wallet_balance,
+            available_free_margin=free_margin,
+            auto_margin_cap=auto_margin_capping_enabled,
+            margin_safety_buffer=margin_buffer,
             risk_percent=risk_pct,
             entry_price=effective_entry_for_calc,
             sl_price=sig.sl_price,
@@ -391,7 +416,25 @@ class ExecuteSignalUseCase:
             qty_precision=qty_prec,
             max_risk_amount=effective_max_risk,
             brackets=brackets,
+            symbol=sig.symbol,
+            strict=False,
         )
+
+        if not risk_res.is_valid:
+            logger.warning("Pre-trade margin/risk validation failed for %s: %s", sig.symbol, risk_res.warning)
+            raise InsufficientMarginRiskError(
+                message=risk_res.warning,
+                required_margin=risk_res.required_margin,
+                available_margin=free_margin,
+                shortfall=risk_res.shortfall_margin,
+                position_size=risk_res.position_size,
+                notional=risk_res.notional_value,
+                leverage=effective_leverage,
+                risk_amount=risk_res.risk_amount,
+                stop_distance=risk_res.stop_distance,
+                symbol=sig.symbol,
+            )
+
         if hasattr(risk_res, "leverage") and risk_res.leverage:
             effective_leverage = int(risk_res.leverage)
 
@@ -462,6 +505,35 @@ class ExecuteSignalUseCase:
                     avg_val = entry_resp.get("average") or entry_resp.get("price")
                     if avg_val is not None and Decimal(str(avg_val)) > Decimal("0"):
                         actual_entry_price = Decimal(str(avg_val))
+            except InsufficientMarginError as exc:
+                await self.trade_repo.update_trade_status(
+                    trade_id=trade.id,
+                    schema=TradeStatusUpdate(status="CANCELLED"),
+                )
+                stop_dist = abs(actual_entry_price - sig.sl_price)
+                stop_pct_val = (stop_dist / actual_entry_price) * Decimal("100") if actual_entry_price > 0 else Decimal("0")
+                notional_val = risk_res.position_size * actual_entry_price
+                req_m = notional_val / Decimal(str(effective_leverage))
+                shortfall_val = max(Decimal("0"), req_m - free_margin)
+                detail_msg = (
+                    f"Bursa menolak order (Margin is insufficient / Margin Tidak Mencukupi): Dibutuhkan {req_m:.2f} USDT, "
+                    f"Tersedia {free_margin:.2f} USDT (Kekurangan: {shortfall_val:.2f} USDT). "
+                    f"Notional: {notional_val:.2f} USDT @ {effective_leverage}x, Risk: {risk_res.risk_amount:.2f} USDT, "
+                    f"SL Dist: {stop_dist:.4f} ({stop_pct_val:.2f}%)."
+                )
+                raise InsufficientMarginError(
+                    detail_msg,
+                    required_margin=req_m,
+                    available_margin=free_margin,
+                    shortfall=shortfall_val,
+                    position_size=risk_res.position_size,
+                    notional=notional_val,
+                    leverage=effective_leverage,
+                    risk_amount=risk_res.risk_amount,
+                    stop_distance=stop_dist,
+                    stop_percent=stop_pct_val,
+                    symbol=sig.symbol,
+                ) from exc
             except ExchangeAuthError as exc:
                 if "apiKey" in str(exc).lower() or "binanceusdm" in str(exc).lower():
                     logger.warning("Exchange unauthenticated in create_order, proceeding in simulated mode.")

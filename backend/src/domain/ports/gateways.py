@@ -175,6 +175,32 @@ class IExchangeGateway(ABC):
         ...
 
     @abstractmethod
+    async def fetch_my_trades(
+        self,
+        symbol: Optional[str] = None,
+        since: Optional[int] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch historical executed trades from the exchange."""
+        ...
+
+    @abstractmethod
+    async def edit_order(
+        self,
+        order_id: str,
+        symbol: str,
+        side: Union[OrderSide, str],
+        order_type: Union[OrderType, str],
+        qty: Optional[Union[Decimal, Quantity, float]] = None,
+        price: Optional[Union[Decimal, Price, float]] = None,
+        stop_price: Optional[Union[Decimal, Price, float]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Modify an active order in-place without cancel/recreate race conditions."""
+        ...
+
+    @abstractmethod
     def reconfigure(
         self,
         api_key: Optional[str] = None,

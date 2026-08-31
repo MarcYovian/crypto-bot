@@ -60,7 +60,7 @@ class OrderRead(OrderBase, TimestampMixin):
 
 class ExecutionBase(BaseSchema):
     """Base fields for an execution / partial fill."""
-    order_id: int = Field(..., gt=0, description="FK to orders table")
+    order_id: Optional[int] = Field(default=None, description="FK to orders table")
     trade_id: int = Field(..., gt=0, description="FK to trades table")
     price: Decimal = Field(..., gt=0, description="Fill price")
     qty: Decimal = Field(..., gt=0, description="Filled quantity")

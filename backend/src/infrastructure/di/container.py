@@ -358,6 +358,10 @@ class ApplicationContainer:
             trade_repo=self.get_trade_repo(session),
             instrument_repo=self.get_instrument_repo(session),
             exchange_gateway=self.exchange_gateway,
+            order_repo=self.get_order_repo(session),
+            execution_repo=self.get_execution_repo(session),
+            trade_summary_repo=self.get_trade_summary_repo(session),
+            event_publisher=self.event_publisher,
         )
 
     def get_simulate_risk_use_case(self, session: AsyncSession) -> SimulateRiskUseCase:

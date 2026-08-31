@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.dto.signal_commands import ApproveSignalCommand, ParseSignalCommand, RejectSignalCommand
+from src.domain.exceptions import InsufficientMarginRiskError, InsufficientMarginError
 from src.infrastructure.di.container import container
 from src.presentation.telegram.wizard_manager import TelegramWizardManager
 from src.infrastructure.persistence.repositories.signal_provider_repository import SignalProviderRepository
@@ -185,6 +186,42 @@ class TelegramBotController:
                     except Exception as exc:
                         logger.debug("Could not edit message on approve: %s", exc)
                 return status_text
+            except InsufficientMarginRiskError as exc:
+                logger.error("Margin insufficient on signal approval: %s", exc)
+                req_str = f"{float(exc.required_margin):.2f} USDT" if exc.required_margin is not None else "N/A"
+                avail_str = f"{float(exc.available_margin):.2f} USDT" if exc.available_margin is not None else "N/A"
+                short_str = f"{float(exc.shortfall):.2f} USDT" if exc.shortfall is not None else "N/A"
+                notional_str = f"{float(exc.notional):.2f} USDT" if exc.notional is not None else "N/A"
+                lev_str = f"{exc.leverage}x" if exc.leverage else "N/A"
+                risk_str = f"{float(exc.risk_amount):.2f} USDT" if exc.risk_amount is not None else "N/A"
+                stop_str = f"{float(exc.stop_distance):.4f}" if exc.stop_distance is not None else "N/A"
+                pct_str = f" ({float(exc.stop_percent):.2f}%)" if exc.stop_percent is not None else ""
+
+                err_text = (
+                    f"❌ <b>GAGAL EKSEKUSI: MARGIN TIDAK MENCUKUPI</b>\n\n"
+                    f"📊 <b>Detail Perhitungan Margin:</b>\n"
+                    f"• <b>Margin Dibutuhkan:</b> <code>{req_str}</code>\n"
+                    f"• <b>Margin Tersedia (Free):</b> <code>{avail_str}</code>\n"
+                    f"• <b>Kekurangan:</b> <code>{short_str}</code>\n\n"
+                    f"📋 <b>Detail Posisi & Risiko:</b>\n"
+                    f"• <b>Notional:</b> <code>{notional_str} @ {lev_str}</code>\n"
+                    f"• <b>Risk Budget:</b> <code>{risk_str}</code>\n"
+                    f"• <b>Jarak Stop Loss:</b> <code>{stop_str}{pct_str}</code>\n\n"
+                    f"💡 <b>Solusi / Saran:</b>\n"
+                    f"1. Top up saldo USDT di Binance (Testnet).\n"
+                    f"2. Tutup posisi aktif lain untuk membebaskan margin.\n"
+                    f"3. Naikkan leverage atau perlebar jarak Stop Loss."
+                )
+                if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
+                    try:
+                        await self.notification_gateway.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=err_text,
+                        )
+                    except Exception as e:
+                        logger.debug("Could not edit message on approve margin error: %s", e)
+                return err_text
             except Exception as exc:
                 logger.error("Error approving signal via callback: %s", exc)
                 err_text = f"❌ <b>GAGAL MENYETUJUI SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"

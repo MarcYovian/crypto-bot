@@ -366,6 +366,78 @@ class BinanceExchangeAdapter(IExchangeGateway):
             raw = await self.connector.execute_rest("fetch_leverage_brackets", [ccxt_sym] if ccxt_sym else None)
         return self.parser.parse_leverage_brackets(raw)
 
+    async def edit_order(
+        self,
+        order_id: str,
+        symbol: str,
+        side: Union[OrderSide, str],
+        order_type: Union[OrderType, str],
+        qty: Optional[Union[Decimal, Quantity, float]] = None,
+        price: Optional[Union[Decimal, Price, float]] = None,
+        stop_price: Optional[Union[Decimal, Price, float]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Modify an active order in-place without cancel/recreate race conditions."""
+        clean_sym = self.validator.validate_symbol(symbol)
+        ccxt_sym = self.parser.to_ccxt_symbol(clean_sym)
+        side_val = (side.value if isinstance(side, OrderSide) else str(side)).lower()
+        type_val = (order_type.value if isinstance(order_type, OrderType) else str(order_type)).lower()
+
+        qty_float = float(qty.value if isinstance(qty, Quantity) else Decimal(str(qty))) if qty is not None else None
+        price_float = float(price.value if isinstance(price, Price) else Decimal(str(price))) if price is not None else None
+
+        req_params = dict(params or {})
+        if stop_price is not None:
+            req_params["stopPrice"] = float(stop_price.value if isinstance(stop_price, Price) else Decimal(str(stop_price)))
+
+        raw = await self.connector.execute_rest(
+            "edit_order",
+            order_id,
+            ccxt_sym,
+            type_val,
+            side_val,
+            qty_float,
+            price_float,
+            params=req_params,
+        )
+        return self.parser.parse_order(raw)
+
+    async def fetch_my_trades(
+        self,
+        symbol: Optional[str] = None,
+        since: Optional[int] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch executed trades from exchange."""
+        clean_sym = self.validator.validate_symbol(symbol) if symbol else None
+        ccxt_sym = self.parser.to_ccxt_symbol(clean_sym) if clean_sym else None
+        raw_trades = await self.connector.execute_rest(
+            "fetch_my_trades",
+            ccxt_sym,
+            since=since,
+            limit=limit or 20,
+            params=params or {},
+        )
+        return raw_trades or []
+
+    async def cancel_stop_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """Cancel all stop-market and take-profit open orders for a symbol safely."""
+        clean_sym = self.validator.validate_symbol(symbol)
+        open_orders = await self.fetch_open_orders(clean_sym)
+        cancelled = []
+        for o in open_orders:
+            otype = str(o.get("order_type") or o.get("type") or "").upper()
+            if "STOP" in otype or "TAKE_PROFIT" in otype:
+                oid = o.get("exchange_order_id") or o.get("id")
+                if oid:
+                    try:
+                        res = await self.cancel_order(clean_sym, exchange_order_id=str(oid))
+                        cancelled.append(res)
+                    except Exception as exc:
+                        logger.debug("Could not cancel stop order %s: %s", oid, exc)
+        return cancelled
+
     async def fetch_instruments_metadata(self) -> List[Dict[str, Any]]:
         """Fetch active trading pairs and precision rules from exchange."""
         if hasattr(self.connector, "fetch_instruments_metadata"):

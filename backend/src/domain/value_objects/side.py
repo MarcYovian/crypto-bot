@@ -24,15 +24,23 @@ class OrderSide(str, Enum):
         return OrderSide.SELL if self == OrderSide.BUY else OrderSide.BUY
 
     @classmethod
-    def from_str(cls, value: Union[str, "OrderSide"]) -> "OrderSide":
-        """Convert string to OrderSide enum safely."""
+    def from_str(cls, value: Union[str, "OrderSide", None], default: Union["OrderSide", None] = None) -> "OrderSide":
+        """Convert string to OrderSide enum safely with fallback."""
         if isinstance(value, OrderSide):
             return value
+        if value is None:
+            if default is not None:
+                return default
+            raise ValueError("Order side cannot be None")
         cleaned = str(value).strip().upper()
         if cleaned in ("BUY", "LONG"):
             return cls.BUY
         if cleaned in ("SELL", "SHORT"):
             return cls.SELL
+        if default is not None:
+            return default
+        if cleaned in ("NONE", "UNKNOWN", ""):
+            return cls.BUY  # Safe standard fallback
         raise ValueError(f"Invalid order side: {value}")
 
     def __str__(self) -> str:

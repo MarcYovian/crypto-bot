@@ -105,6 +105,8 @@ def test_concrete_mock_exchange_gateway_satisfies_contract():
         async def fetch_positions(self, symbol=None): return []
         async def fetch_leverage_brackets(self, symbol=None): return []
         async def fetch_instruments_metadata(self): return []
+        async def fetch_my_trades(self, symbol=None, since=None, limit=None, params=None): return []
+        async def edit_order(self, order_id, symbol, side, order_type, qty=None, price=None, stop_price=None, params=None): return {}
         def reconfigure(self, api_key=None, secret_key=None, testnet=None): pass
         async def close(self): pass
 

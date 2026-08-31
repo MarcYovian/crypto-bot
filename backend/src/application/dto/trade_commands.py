@@ -63,6 +63,7 @@ class OrderFillPayload:
     fee: Decimal = Decimal("0")
     fee_asset: str = "USDT"
     trade_id: Optional[int] = None
+    order_id: Optional[int] = None
     purpose: Optional[OrderPurpose] = None
 
 

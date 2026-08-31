@@ -86,12 +86,12 @@ class HandleOrderFillUseCase:
         """Process an order fill event from exchange."""
         # 1. Resolve matching order in database
         order = None
-        if getattr(payload, "order_id", None) and isinstance(payload.order_id, int):
-            order = await self.order_repo.get(payload.order_id)
-        if not order and getattr(payload, "client_order_id", None):
+        if getattr(payload, "client_order_id", None):
             order = await self.order_repo.get_by_client_order_id(payload.client_order_id)
         if not order and getattr(payload, "exchange_order_id", None):
             order = await self.order_repo.get_by_exchange_order_id(payload.exchange_order_id)
+        if not order and getattr(payload, "order_id", None) and isinstance(payload.order_id, int):
+            order = await self.order_repo.get(payload.order_id)
 
 
         if not order:
@@ -137,7 +137,8 @@ class HandleOrderFillUseCase:
             ),
         )
 
-        purpose = order.purpose.upper() if order.purpose else "UNKNOWN"
+        purpose_str = order.purpose.value if hasattr(order.purpose, "value") else str(order.purpose or "UNKNOWN")
+        purpose = purpose_str.upper()
 
         # 4. Dispatch based on Order Purpose
         if purpose == "ENTRY":
@@ -450,7 +451,7 @@ class HandleOrderFillUseCase:
 
 
     async def _shift_stop_loss_to_bep(self, trade: Any) -> None:
-        """Cancel current SL and place new BEP SL order at entry price."""
+        """Cancel current SL and place new BEP SL order at entry price atomically."""
         if not self.exchange_gateway or not trade.entry_price:
             return
 
@@ -459,14 +460,33 @@ class HandleOrderFillUseCase:
         exit_side = OrderSide.SELL if is_long else OrderSide.BUY
 
         try:
-            # 1. Cancel old SL order if exists
+            # 1. First, check if we can edit existing SL order in-place
             sl_orders = (
                 await self.order_repo.get_orders_by_purpose(trade.id, "STOP_LOSS")
                 or await self.order_repo.get_orders_by_purpose(trade.id, "SL")
+                or await self.order_repo.get_orders_by_purpose(trade.id, "BEP_SL")
             )
-            if sl_orders:
-                old_sl = sl_orders[0]
-                if old_sl.exchange_order_id:
+            edited = False
+            old_sl = sl_orders[0] if sl_orders else None
+
+            if old_sl and old_sl.exchange_order_id and hasattr(self.exchange_gateway, "edit_order"):
+                try:
+                    edit_resp = await self.exchange_gateway.edit_order(
+                        order_id=old_sl.exchange_order_id,
+                        symbol=sym,
+                        side=exit_side,
+                        order_type=OrderType.STOP_MARKET,
+                        stop_price=trade.entry_price,
+                        qty=trade.remaining_qty or trade.position_size,
+                    )
+                    edited = True
+                    logger.info("Successfully edited Stop Loss in-place to BEP for Trade #%s (New SL: %s)", trade.id, trade.entry_price)
+                except Exception as edit_exc:
+                    logger.debug("In-place edit_order failed, falling back to safe cancel-and-create: %s", edit_exc)
+
+            if not edited:
+                # 2. Cancel existing stop orders on Binance safely
+                if old_sl and old_sl.exchange_order_id:
                     try:
                         await self.exchange_gateway.cancel_order(
                             symbol=sym,
@@ -474,31 +494,40 @@ class HandleOrderFillUseCase:
                         )
                     except Exception:
                         pass
-                await self.order_repo.update(old_sl, OrderUpdate(status="CANCELED"))
 
-            # 2. Place new BEP SL order
-            new_sl_resp = await self.exchange_gateway.create_stop_loss_order(
-                symbol=sym,
-                side=exit_side.value,
-                stop_price=trade.entry_price,
-                qty=trade.remaining_qty or trade.position_size,
-                client_order_id=f"BEP_SL_{trade.id}",
-            )
-            await self.order_repo.create(
-                OrderCreate(
-                    trade_id=trade.id,
-                    exchange_order_id=new_sl_resp.get("exchange_order_id") or str(new_sl_resp.get("id", "")),
-                    client_order_id=f"BEP_SL_{trade.id}",
-                    order_type="STOP_MARKET",
-                    purpose="BEP_SL",
+                # Also clean up any lingering stop orders on exchange to prevent -4130
+                if hasattr(self.exchange_gateway, "cancel_stop_orders"):
+                    try:
+                        await self.exchange_gateway.cancel_stop_orders(sym)
+                    except Exception:
+                        pass
+
+                if old_sl:
+                    await self.order_repo.update(old_sl, OrderUpdate(status="CANCELED"))
+
+                # 3. Place new BEP SL order
+                new_sl_resp = await self.exchange_gateway.create_stop_loss_order(
+                    symbol=sym,
                     side=exit_side.value,
-                    price=trade.entry_price,
+                    stop_price=trade.entry_price,
                     qty=trade.remaining_qty or trade.position_size,
-                    status="NEW",
+                    client_order_id=f"BEP_SL_{trade.id}",
                 )
-            )
+                await self.order_repo.create(
+                    OrderCreate(
+                        trade_id=trade.id,
+                        exchange_order_id=new_sl_resp.get("exchange_order_id") or str(new_sl_resp.get("id", "")),
+                        client_order_id=f"BEP_SL_{trade.id}",
+                        order_type="STOP_MARKET",
+                        purpose="BEP_SL",
+                        side=exit_side.value,
+                        price=trade.entry_price,
+                        qty=trade.remaining_qty or trade.position_size,
+                        status="NEW",
+                    )
+                )
 
-            # 3. Update trade stop loss in DB
+            # 4. Update trade stop loss in DB
             await self.trade_repo.update_stop_loss(trade.id, trade.entry_price)
 
             if self.event_publisher:
@@ -507,6 +536,7 @@ class HandleOrderFillUseCase:
                         trade_id=trade.id,
                         account_id=trade.account_id,
                         symbol=sym,
+                        side=OrderSide.from_str(trade.side, default=OrderSide.BUY),
                         old_sl_price=trade.sl_price or trade.entry_price,
                         new_sl_price=trade.entry_price,
                         reason="BEP_AFTER_TP1",
@@ -516,7 +546,7 @@ class HandleOrderFillUseCase:
             logger.error("Failed shifting Stop Loss to BEP for Trade #%s: %s", trade.id, exc)
 
     async def execute_from_raw_event(self, order_data: Any) -> Optional[Any]:
-        """Parse raw exchange order update, match with DB order, and execute fill transitions."""
+        """Parse raw exchange order update, match with DB order via 3-Tier Hierarchy, and execute fill transitions."""
         from src.utils.ws_cache_logger import write_ws_order_cache
         try:
             await write_ws_order_cache(order_data)
@@ -534,16 +564,75 @@ class HandleOrderFillUseCase:
             return None
 
         order = None
-        for attempt in range(3):
-            if binance_order_id:
-                order = await self.order_repo.get_by_exchange_order_id(binance_order_id)
-            if not order and client_order_id:
-                order = await self.order_repo.get_by_client_order_id(client_order_id)
-            if order:
-                break
-            if attempt < 2:
-                import asyncio
-                await asyncio.sleep(0.3)
+        # Tier 1: Match by Binance exchange order ID
+        if binance_order_id:
+            order = await self.order_repo.get_by_exchange_order_id(binance_order_id)
+
+        # Tier 2: Match by client order ID
+        if not order and client_order_id:
+            order = await self.order_repo.get_by_client_order_id(client_order_id)
+
+        # Tier 3: Contextual Active Trade Resolution (For Binance-generated trigger order IDs e.g. autoclose / market SL executions)
+        if not order:
+            raw_sym = str(order_data.get("symbol") or "")
+            clean_sym = raw_sym.replace("/", "").replace(":USDT", "").upper() or "BTCUSDT"
+            active_trades = await self.trade_repo.get_all_active_trades()
+            matching_trade = next(
+                (t for t in active_trades if (t.instrument and t.instrument.symbol == clean_sym) or (getattr(t, "symbol", "") == clean_sym)),
+                None
+            )
+
+            if matching_trade:
+                trade_side_upper = matching_trade.side.upper()
+                order_side_raw = str(order_data.get("side") or "").upper()
+                is_exit_side = (
+                    (trade_side_upper in ("BUY", "LONG") and order_side_raw in ("SELL", "SHORT"))
+                    or (trade_side_upper in ("SELL", "SHORT") and order_side_raw in ("BUY", "LONG"))
+                )
+
+                if is_exit_side:
+                    fill_p = Decimal(str(order_data.get("average") or order_data.get("price") or 0))
+                    qty_f = Decimal(str(order_data.get("filled") or order_data.get("amount") or 0))
+
+                    # Determine resolved purpose (SL vs TP1 vs TP2 vs TP3)
+                    resolved_purpose = OrderPurpose.SL
+                    if matching_trade.sl_price and fill_p > 0:
+                        is_sl_hit = (
+                            (trade_side_upper in ("BUY", "LONG") and fill_p <= matching_trade.sl_price * Decimal("1.005"))
+                            or (trade_side_upper in ("SELL", "SHORT") and fill_p >= matching_trade.sl_price * Decimal("0.995"))
+                        )
+                        if is_sl_hit:
+                            resolved_purpose = OrderPurpose.SL
+                        elif matching_trade.tp1_price and abs(fill_p - matching_trade.tp1_price) < abs(fill_p - matching_trade.sl_price):
+                            resolved_purpose = OrderPurpose.TP1
+                        elif matching_trade.tp2_price and abs(fill_p - matching_trade.tp2_price) < abs(fill_p - matching_trade.sl_price):
+                            resolved_purpose = OrderPurpose.TP2
+                        elif matching_trade.tp3_price and abs(fill_p - matching_trade.tp3_price) < abs(fill_p - matching_trade.sl_price):
+                            resolved_purpose = OrderPurpose.TP3
+
+                    existing_purpose_orders = await self.order_repo.get_orders_by_purpose(
+                        matching_trade.id, resolved_purpose.value if hasattr(resolved_purpose, "value") else str(resolved_purpose)
+                    )
+                    if existing_purpose_orders:
+                        order = existing_purpose_orders[0]
+                    else:
+                        order = await self.order_repo.create(
+                            OrderCreate(
+                                trade_id=matching_trade.id,
+                                exchange_order_id=binance_order_id,
+                                client_order_id=client_order_id or f"EXEC_{matching_trade.id}_{binance_order_id}",
+                                order_type="STOP_MARKET" if resolved_purpose == OrderPurpose.SL else "TAKE_PROFIT_MARKET",
+                                purpose=resolved_purpose.value,
+                                side=order_side_raw,
+                                price=fill_p,
+                                qty=qty_f or matching_trade.remaining_qty or matching_trade.position_size,
+                                status="NEW",
+                            )
+                        )
+                    logger.info(
+                        "[WS Stream Tier-3 Match] Matched untracked order %s to Trade #%s (%s) as %s",
+                        binance_order_id, matching_trade.id, clean_sym, resolved_purpose
+                    )
 
         if not order:
             logger.debug("[WS Stream] Order %s (%s) not found in DB. Skipping.", client_order_id, binance_order_id)
@@ -560,8 +649,8 @@ class HandleOrderFillUseCase:
         side_val = order.side.value if hasattr(order.side, "value") else str(order.side)
         purpose_val = order.purpose.value if hasattr(order.purpose, "value") else str(order.purpose)
 
-        side_enum = OrderSide(side_val.upper())
-        purpose_enum = OrderPurpose(purpose_val.upper()) if purpose_val else None
+        side_enum = OrderSide.from_str(side_val, default=OrderSide.BUY)
+        purpose_enum = OrderPurpose.from_str(purpose_val) if purpose_val else None
         order_type_enum = OrderType.MARKET
 
         fill_payload = OrderFillPayload(
@@ -577,6 +666,7 @@ class HandleOrderFillUseCase:
             fee=fee_cost,
             fee_asset="USDT",
             trade_id=order.trade_id,
+            order_id=order.id,
             purpose=purpose_enum,
         )
         return await self.execute(fill_payload)

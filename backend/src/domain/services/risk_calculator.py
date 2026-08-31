@@ -65,6 +65,11 @@ class RiskCalculatorDomainService:
         profile: Optional[Any] = None,
         daily_risk: Optional[Any] = None,
         strict: bool = False,
+        auto_margin_cap: bool = False,
+        available_free_margin: Optional[Union[Decimal, float]] = None,
+        free_margin: Optional[Union[Decimal, float]] = None,
+        margin_safety_buffer: Decimal = Decimal("0.95"),
+        symbol: Optional[str] = None,
     ) -> RiskCalculationResultDTO:
 
 
@@ -83,6 +88,8 @@ class RiskCalculatorDomainService:
                 requested_leverage = getattr(signal_dto, "leverage", None)
             if tp_targets is None:
                 tp_targets = getattr(signal_dto, "tp_targets", None)
+            if symbol is None:
+                symbol = getattr(signal_dto, "symbol", None)
             raw_side = getattr(signal_dto, "side", None)
             if raw_side is not None:
                 if isinstance(raw_side, OrderSide):
@@ -99,6 +106,8 @@ class RiskCalculatorDomainService:
             qty_precision = getattr(instrument, "qty_precision", qty_precision)
             price_precision = getattr(instrument, "price_precision", price_precision)
             min_notional = getattr(instrument, "min_notional", min_notional)
+            if symbol is None:
+                symbol = getattr(instrument, "symbol", None)
             if brackets is None:
                 brackets = getattr(instrument, "leverage_brackets", None)
 
@@ -131,6 +140,9 @@ class RiskCalculatorDomainService:
             maint_margin_ratio = params.maint_margin_ratio
             brackets = params.brackets or brackets
             strict = params.strict
+            auto_margin_cap = getattr(params, "auto_margin_cap", auto_margin_cap)
+            available_free_margin = getattr(params, "available_free_margin", available_free_margin)
+            margin_safety_buffer = getattr(params, "margin_safety_buffer", margin_safety_buffer)
 
 
         if wallet_balance is None or entry_price is None or sl_price is None:
@@ -331,27 +343,126 @@ class RiskCalculatorDomainService:
             adj_reason = f"Capped at max allowed instrument leverage {max_lev_val}x."
 
 
-        # 4. Required margin
-        notional = position_size * ep
-        required_margin = notional / Decimal(str(effective_leverage))
+        # 4. Required margin & Pre-Trade Margin Validation
+        initial_notional = position_size * ep
+        initial_required_margin = initial_notional / Decimal(str(effective_leverage))
+        required_margin = initial_required_margin
 
-        # Check margin availability
+        # Resolve available margin for trade (free_margin if provided, otherwise wallet_balance)
+        avail_margin = None
+        if available_free_margin is not None:
+            avail_margin = Decimal(str(available_free_margin))
+        elif free_margin is not None:
+            avail_margin = Decimal(str(free_margin))
+        else:
+            avail_margin = wb
+
+        if avail_margin < Decimal("0"):
+            avail_margin = Decimal("0")
+
+        is_margin_capped = False
+        orig_position_size = None
+        orig_required_margin = None
+        shortfall_margin = None
         warning = None
         is_valid = True
-        if required_margin > wb:
-            if strict:
-                raise InsufficientMarginRiskError(
-                    f"Required margin ({required_margin:.2f} USDT) exceeds available wallet balance ({wb:.2f} USDT)."
-                )
-            warning = f"Required margin ({required_margin:.2f} USDT) exceeds available wallet balance ({wb:.2f} USDT)."
-            is_valid = False
 
-        if notional < min_notional:
+        if initial_required_margin > avail_margin:
+            shortfall = initial_required_margin - avail_margin
+            shortfall_margin = shortfall
+            stop_pct_val = (stop_distance / ep) * Decimal("100")
+
+            if auto_margin_cap and avail_margin > Decimal("0"):
+                # Calculate max safe notional scaled down to safety buffer (e.g. 95% of free margin)
+                safe_buffer_dec = Decimal(str(margin_safety_buffer)) if margin_safety_buffer else Decimal("0.95")
+                max_allowed_margin = avail_margin * safe_buffer_dec
+                max_allowed_notional = max_allowed_margin * Decimal(str(effective_leverage))
+                capped_qty = PrecisionFilterDomainService.round_quantity(
+                    qty=max_allowed_notional / ep,
+                    step_size=ss,
+                    qty_precision=qty_precision,
+                    round_down=True,
+                )
+                if max_qty_dec is not None and capped_qty > max_qty_dec:
+                    capped_qty = max_qty_dec
+
+                capped_notional = capped_qty * ep
+                min_notional_dec = _safe_dec(min_notional) or Decimal("5.0")
+
+                if (
+                    capped_qty > Decimal("0")
+                    and capped_notional >= min_notional_dec
+                    and (min_qty_dec is None or capped_qty >= min_qty_dec)
+                ):
+                    orig_position_size = position_size
+                    orig_required_margin = initial_required_margin
+                    position_size = capped_qty
+                    required_margin = capped_notional / Decimal(str(effective_leverage))
+                    risk_amount = position_size * stop_distance
+                    is_margin_capped = True
+                    warning = (
+                        f"Ukuran posisi disesuaikan otomatis (Auto-Capped) dari {orig_position_size} ke {position_size} "
+                        f"karena keterbatasan saldo margin bebas ({avail_margin:.2f} USDT)."
+                    )
+                else:
+                    # Even after capping, cannot satisfy minimum notional or min lot
+                    err_msg = (
+                        f"Margin tidak mencukupi: Dibutuhkan {initial_required_margin:.2f} USDT, "
+                        f"Tersedia {avail_margin:.2f} USDT (Kekurangan: {shortfall:.2f} USDT). "
+                        f"Notional: {initial_notional:.2f} USDT @ {effective_leverage}x, Risk: {risk_amount:.2f} USDT, "
+                        f"SL Dist: {stop_distance:.4f} ({stop_pct_val:.2f}%). "
+                        f"Penyesuaian capping menghasilkan notional ({capped_notional:.2f} USDT) "
+                        f"di bawah batas minimum bursa ({min_notional_dec:.2f} USDT)."
+                    )
+                    if strict:
+                        raise InsufficientMarginRiskError(
+                            err_msg,
+                            required_margin=initial_required_margin,
+                            available_margin=avail_margin,
+                            shortfall=shortfall,
+                            position_size=initial_position_size if 'initial_position_size' in locals() else position_size,
+                            notional=initial_notional,
+                            leverage=effective_leverage,
+                            risk_amount=risk_amount,
+                            stop_distance=stop_distance,
+                            stop_percent=stop_pct_val,
+                            symbol=symbol,
+                        )
+                    warning = err_msg
+                    is_valid = False
+            else:
+                err_msg = (
+                    f"Required margin ({initial_required_margin:.2f} USDT) exceeds available wallet balance ({avail_margin:.2f} USDT). "
+                    f"Margin tidak mencukupi: Dibutuhkan {initial_required_margin:.2f} USDT, "
+                    f"Tersedia {avail_margin:.2f} USDT (Kekurangan: {shortfall:.2f} USDT). "
+                    f"Notional: {initial_notional:.2f} USDT @ {effective_leverage}x, Risk: {risk_amount:.2f} USDT, "
+                    f"SL Dist: {stop_distance:.4f} ({stop_pct_val:.2f}%)."
+                )
+                if strict:
+                    raise InsufficientMarginRiskError(
+                        err_msg,
+                        required_margin=initial_required_margin,
+                        available_margin=avail_margin,
+                        shortfall=shortfall,
+                        position_size=position_size,
+                        notional=initial_notional,
+                        leverage=effective_leverage,
+                        risk_amount=risk_amount,
+                        stop_distance=stop_distance,
+                        stop_percent=stop_pct_val,
+                        symbol=symbol,
+                    )
+                warning = err_msg
+                is_valid = False
+
+        notional = position_size * ep
+        min_notional_dec = _safe_dec(min_notional) or Decimal("5.0")
+        if notional < min_notional_dec and is_valid:
             if strict:
                 raise RiskCalculationError(
-                    f"Order notional ({notional:.2f} USDT) is below minimum exchange threshold ({min_notional:.2f} USDT)."
+                    f"Order notional ({notional:.2f} USDT) is below minimum exchange threshold ({min_notional_dec:.2f} USDT)."
                 )
-            warning = f"Order notional ({notional:.2f} USDT) is below minimum exchange threshold ({min_notional:.2f} USDT)."
+            warning = f"Order notional ({notional:.2f} USDT) is below minimum exchange threshold ({min_notional_dec:.2f} USDT)."
             is_valid = False
 
         # 5. Take profit allocations and Risk/Reward ratios
@@ -388,6 +499,11 @@ class RiskCalculatorDomainService:
             tp_allocations=tp_allocations,
             is_valid=is_valid,
             warning=warning,
+            is_margin_capped=is_margin_capped,
+            original_position_size=orig_position_size,
+            original_required_margin=orig_required_margin,
+            available_margin=avail_margin,
+            shortfall_margin=shortfall_margin,
         )
 
     @classmethod

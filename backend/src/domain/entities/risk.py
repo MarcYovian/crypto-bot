@@ -37,6 +37,9 @@ class PositionSizingInput:
     maint_margin_ratio: Decimal = Decimal("0.015")
     brackets: Optional[List[Any]] = None
     strict: bool = False  # If True, raises Domain Exceptions instead of returning is_valid=False with warnings
+    auto_margin_cap: bool = False  # Auto-adjust lot size when required margin exceeds free margin
+    available_free_margin: Optional[Union[Decimal, float]] = None
+    margin_safety_buffer: Decimal = Decimal("0.95")  # Buffer to leave room for taker fees & micro-slippage
 
 
 # Convenience alias
@@ -87,6 +90,11 @@ class RiskCalculationResultDTO:
     tp_allocations: List[TPAllocationDTO] = field(default_factory=list)
     is_valid: bool = True
     warning: Optional[str] = None
+    is_margin_capped: bool = False
+    original_position_size: Optional[Decimal] = None
+    original_required_margin: Optional[Decimal] = None
+    available_margin: Optional[Decimal] = None
+    shortfall_margin: Optional[Decimal] = None
 
     @property
     def stop_loss_price(self) -> Decimal:

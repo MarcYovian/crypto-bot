@@ -114,10 +114,11 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
             account_id: Optional account FK filter.
             
         Returns:
-            List of active Trade instances.
+            List of active Trade instances with populated instrument relation.
         """
         stmt = (
             select(Trade)
+            .options(selectinload(Trade.instrument))
             .where(Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]))
             .order_by(Trade.created_at.desc())
         )
