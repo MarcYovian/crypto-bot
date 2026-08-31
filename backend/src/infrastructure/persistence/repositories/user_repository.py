@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models.users import User
 from src.presentation.api.schemas.user import UserCreateRequest
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IUserRepository
 
 
-class UserRepository(BaseRepository[User, UserCreateRequest, UserCreateRequest]):
+class UserRepository(BaseRepository[User, UserCreateRequest, UserCreateRequest], IUserRepository):
     """Data access repository for User entities."""
 
     def __init__(self, session: AsyncSession) -> None:

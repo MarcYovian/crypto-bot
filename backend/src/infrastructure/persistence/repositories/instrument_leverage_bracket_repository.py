@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import InstrumentLeverageBracket
 from src.presentation.api.schemas.master import InstrumentLeverageBracketCreate, InstrumentLeverageBracketUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IInstrumentLeverageBracketRepository
 
 
 class InstrumentLeverageBracketRepository(
-    BaseRepository[InstrumentLeverageBracket, InstrumentLeverageBracketCreate, InstrumentLeverageBracketUpdate]
+    BaseRepository[InstrumentLeverageBracket, InstrumentLeverageBracketCreate, InstrumentLeverageBracketUpdate],
+    IInstrumentLeverageBracketRepository,
 ):
     """CRUD repository for the ``instrument_leverage_brackets`` table."""
 

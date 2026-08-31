@@ -86,11 +86,11 @@ class HandleOrderFillUseCase:
         """Process an order fill event from exchange."""
         # 1. Resolve matching order in database
         order = None
-        if getattr(payload, "client_order_id", None):
+        if payload.client_order_id is not None and payload.client_order_id != "":
             order = await self.order_repo.get_by_client_order_id(payload.client_order_id)
-        if not order and getattr(payload, "exchange_order_id", None):
+        if not order and payload.exchange_order_id:
             order = await self.order_repo.get_by_exchange_order_id(payload.exchange_order_id)
-        if not order and getattr(payload, "order_id", None) and isinstance(payload.order_id, int):
+        if not order and payload.order_id is not None and isinstance(payload.order_id, int):
             order = await self.order_repo.get(payload.order_id)
 
 
@@ -162,23 +162,24 @@ class HandleOrderFillUseCase:
 
 
             # Record TradeRisk now that order is filled
-            today_risk = await self.daily_risk_repo.get_by_account_id(trade.account_id)
-            if today_risk and trade.sl_price:
-                stop_dist = abs(payload.fill_price - trade.sl_price)
-                margin = (trade.position_size * payload.fill_price) / Decimal(str(trade.leverage or 10))
-                await self.trade_risk_repo.create(
-                    TradeRiskCreate(
-                        trade_id=trade.id,
-                        daily_risk_id=today_risk.id,
-                        entry=payload.fill_price,
-                        stop=trade.sl_price,
-                        stop_distance=stop_dist,
-                        qty=trade.position_size,
-                        margin=margin,
-                        risk_amount=margin * Decimal("0.02"),
-                        leverage=trade.leverage or 10,
+            if self.daily_risk_repo is not None and self.trade_risk_repo is not None:
+                today_risk = await self.daily_risk_repo.get_by_account_id(trade.account_id)
+                if today_risk and trade.sl_price:
+                    stop_dist = abs(payload.fill_price - trade.sl_price)
+                    margin = (trade.position_size * payload.fill_price) / Decimal(str(trade.leverage or 10))
+                    await self.trade_risk_repo.create(
+                        TradeRiskCreate(
+                            trade_id=trade.id,
+                            daily_risk_id=today_risk.id,
+                            entry=payload.fill_price,
+                            stop=trade.sl_price,
+                            stop_distance=stop_dist,
+                            qty=trade.position_size,
+                            margin=margin,
+                            risk_amount=margin * Decimal("0.02"),
+                            leverage=trade.leverage or 10,
+                        )
                     )
-                )
 
             # Place Bracket Orders on exchange
             await self._place_bracket_orders_if_needed(trade, payload.fill_price)
@@ -262,24 +263,25 @@ class HandleOrderFillUseCase:
             
             final_net = total_gross - tot_comm
             
-            existing_sum = await self.trade_summary_repo.get(trade.id)
-            sum_payload = TradeSummaryCreate(
-                trade_id=trade.id,
-                gross_pnl=total_gross,
-                net_pnl=final_net,
-                commission=tot_comm,
-                funding=Decimal("0.0"),
-                roi=Decimal("0.0"),
-                rr=Decimal("0.0"),
-                result="WIN" if final_net > Decimal("0") else ("LOSS" if final_net < Decimal("0") else "BREAKEVEN"),
-                duration_seconds=0,
-                close_reason="TAKE_PROFIT_COMPLETE",
-                closed_at=now,
-            )
-            if existing_sum:
-                await self.trade_summary_repo.update(existing_sum, sum_payload)
-            else:
-                await self.trade_summary_repo.create(sum_payload)
+            if self.trade_summary_repo is not None:
+                existing_sum = await self.trade_summary_repo.get(trade.id)
+                sum_payload = TradeSummaryCreate(
+                    trade_id=trade.id,
+                    gross_pnl=total_gross,
+                    net_pnl=final_net,
+                    commission=tot_comm,
+                    funding=Decimal("0.0"),
+                    roi=Decimal("0.0"),
+                    rr=Decimal("0.0"),
+                    result="WIN" if final_net > Decimal("0") else ("LOSS" if final_net < Decimal("0") else "BREAKEVEN"),
+                    duration_seconds=0,
+                    close_reason="TAKE_PROFIT_COMPLETE",
+                    closed_at=now,
+                )
+                if existing_sum:
+                    await self.trade_summary_repo.update(existing_sum, sum_payload)
+                else:
+                    await self.trade_summary_repo.create(sum_payload)
 
 
             if self.event_publisher:
@@ -353,9 +355,9 @@ class HandleOrderFillUseCase:
         entry_p = trade.entry_price or payload.fill_price
         multiplier = Decimal("1") if trade.side.upper() in ("BUY", "LONG") else Decimal("-1")
         loss = (payload.fill_price - entry_p) * payload.fill_qty * multiplier
-        fee = payload.fee or Decimal("0.0")
-        realized_pnl = payload.realized_pnl if getattr(payload, "realized_pnl", None) is not None else loss
-        net_loss = realized_pnl - fee
+        fee = payload.fee if payload.fee is not None else Decimal("0.0")
+        realized_pnl: Decimal = payload.realized_pnl if payload.realized_pnl is not None else loss
+        net_loss: Decimal = realized_pnl - fee
 
         await self.trade_repo.update_partial_close(
             trade_id=trade.id,
@@ -388,24 +390,25 @@ class HandleOrderFillUseCase:
             tot_comm = fee
         net_loss = realized_pnl - tot_comm
 
-        existing_sum = await self.trade_summary_repo.get(trade.id)
-        sum_payload = TradeSummaryCreate(
-            trade_id=trade.id,
-            gross_pnl=realized_pnl,
-            net_pnl=net_loss,
-            commission=tot_comm,
-            funding=Decimal("0.0"),
-            roi=Decimal("0.0"),
-            rr=Decimal("0.0"),
-            result="WIN" if net_loss > Decimal("0") else ("LOSS" if net_loss < Decimal("0") else "BREAKEVEN"),
-            duration_seconds=0,
-            close_reason="SL_HIT",
-            closed_at=now,
-        )
-        if existing_sum:
-            await self.trade_summary_repo.update(existing_sum, sum_payload)
-        else:
-            await self.trade_summary_repo.create(sum_payload)
+        if self.trade_summary_repo is not None:
+            existing_sum = await self.trade_summary_repo.get(trade.id)
+            sum_payload = TradeSummaryCreate(
+                trade_id=trade.id,
+                gross_pnl=realized_pnl,
+                net_pnl=net_loss,
+                commission=tot_comm,
+                funding=Decimal("0.0"),
+                roi=Decimal("0.0"),
+                rr=Decimal("0.0"),
+                result="WIN" if net_loss > Decimal("0") else ("LOSS" if net_loss < Decimal("0") else "BREAKEVEN"),
+                duration_seconds=0,
+                close_reason="SL_HIT",
+                closed_at=now,
+            )
+            if existing_sum:
+                await self.trade_summary_repo.update(existing_sum, sum_payload)
+            else:
+                await self.trade_summary_repo.create(sum_payload)
 
 
 

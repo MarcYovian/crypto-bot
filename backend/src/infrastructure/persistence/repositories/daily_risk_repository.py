@@ -9,9 +9,10 @@ from src.infrastructure.persistence.models import DailyRiskConfig, TradeRisk, Tr
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.risk import DailyRiskConfigCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IDailyRiskRepository
 
 
-class DailyRiskRepository(BaseRepository[DailyRiskConfig, DailyRiskConfigCreate, BaseSchema]):
+class DailyRiskRepository(BaseRepository[DailyRiskConfig, DailyRiskConfigCreate, BaseSchema], IDailyRiskRepository):
     """CRUD repository for the ``daily_risk_config`` table."""
 
     def __init__(self, session: AsyncSession):

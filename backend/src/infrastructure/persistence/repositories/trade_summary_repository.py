@@ -9,9 +9,10 @@ from src.infrastructure.persistence.models import TradeSummary, Trade
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.event_summary import TradeSummaryCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ITradeSummaryRepository
 
 
-class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, BaseSchema]):
+class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, BaseSchema], ITradeSummaryRepository):
     """CRUD and performance analytics repository for the ``trade_summaries`` table."""
 
     def __init__(self, session: AsyncSession):
@@ -203,3 +204,17 @@ class TradeSummaryRepository(BaseRepository[TradeSummary, TradeSummaryCreate, Ba
             pnl_map[d] = val
 
         return pnl_map
+
+    async def get_multi(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        account_id: Optional[int] = None,
+    ) -> List[TradeSummary]:
+        """Fetch multiple trade summaries with optional account filter."""
+        stmt = select(TradeSummary)
+        if account_id is not None:
+            stmt = stmt.join(Trade).where(Trade.account_id == account_id)
+        stmt = stmt.offset(skip).limit(limit)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())

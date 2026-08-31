@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any, List, Optional
 
 from src.application.dto.trade_commands import BracketOrdersResultDTO, PlaceBracketOrdersCommand
+from src.domain.entities.risk import TPAllocationDTO
 from src.domain.exceptions import ExchangeAuthError, TradeExecutionError
 from src.domain.ports.gateways import IExchangeGateway
 from src.domain.ports.repositories import IOrderRepository, ITradeRepository
@@ -152,16 +153,16 @@ class PlaceBracketOrdersUseCase:
         if tp_targets:
             allocations = self.risk_calc.calculate_tp_allocations(cmd.position_size, tp_targets)
             for idx, alloc in enumerate(allocations, start=1):
-                tp_target = (
-                    alloc[0]
-                    if isinstance(alloc, (list, tuple))
-                    else getattr(alloc, "price", getattr(alloc, "target_price", alloc))
-                )
-                tp_qty = (
-                    alloc[1]
-                    if isinstance(alloc, (list, tuple))
-                    else getattr(alloc, "quantity", getattr(alloc, "allocated_qty", Decimal("0")))
-                )
+                if isinstance(alloc, TPAllocationDTO):
+                    tp_target: Decimal = alloc.price
+                    tp_qty: Decimal = alloc.quantity
+                elif isinstance(alloc, (list, tuple)):
+                    tp_target = Decimal(str(alloc[0]))
+                    tp_qty = Decimal(str(alloc[1]))
+                else:
+                    tp_target = Decimal(str(getattr(alloc, "price", getattr(alloc, "target_price", alloc))))
+                    tp_qty = Decimal(str(getattr(alloc, "quantity", getattr(alloc, "allocated_qty", Decimal("0")))))
+
                 purpose_name = f"TP{idx}"
                 client_tp_id = f"TP_{cmd.trade_id}_{idx}_{int(time.time() * 1000)}"
 

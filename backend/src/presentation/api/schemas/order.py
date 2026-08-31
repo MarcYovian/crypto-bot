@@ -68,6 +68,7 @@ class ExecutionBase(BaseSchema):
     commission_asset: str = Field(default="USDT", description="Fee asset, e.g. USDT, BNB")
     realized_pnl: Decimal = Field(default=Decimal("0"), description="Realized PnL for this execution")
     is_maker: bool = Field(default=False, description="Whether fill was maker order")
+    executed_at: Optional[datetime] = Field(default=None, description="Execution timestamp")
 
 
 class ExecutionCreate(ExecutionBase):

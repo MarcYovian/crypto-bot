@@ -209,10 +209,11 @@ class ExecuteSignalUseCase:
         if not daily_risk:
             per_trade_risk_amount = wallet_balance * (risk_pct / Decimal("100"))
             daily_risk_budget = wallet_balance * (daily_loss_pct / Decimal("100"))
+            prof_id = getattr(profile, "id", 1) if profile is not None else 1
             daily_risk = await self.daily_risk_repo.get_or_create_daily_snapshot(
                 DailyRiskConfigCreate(
                     account_id=cmd.account_id,
-                    risk_profile_id=profile.id if hasattr(profile, "id") and isinstance(profile.id, int) else 1,
+                    risk_profile_id=prof_id if isinstance(prof_id, int) else 1,
                     date=today,
                     balance=wallet_balance,
                     risk_amount=per_trade_risk_amount,
@@ -249,7 +250,7 @@ class ExecuteSignalUseCase:
         # ---------------------------------------------------------------------
         current_price = target_entry
         is_manual = getattr(sig, "raw_text", "").startswith("MANUAL_DASHBOARD")
-        if not is_manual and self.exchange_gateway:
+        if not is_manual and self.exchange_gateway is not None:
             try:
                 ticker = await self.exchange_gateway.fetch_ticker(sig.symbol)
                 last_p = ticker.get("last_price") or ticker.get("last") or ticker.get("close")
@@ -282,7 +283,7 @@ class ExecuteSignalUseCase:
                     message=f"Signal rejected: Price already passed TP1 ({tp1_target}).",
                 )
 
-        if not getattr(cmd, "is_manual", False) and hasattr(self.exchange_gateway, "has_price_reached_target") and tp1_target:
+        if not getattr(cmd, "is_manual", False) and self.exchange_gateway is not None and hasattr(self.exchange_gateway, "has_price_reached_target") and tp1_target:
             try:
                 res_tp = self.exchange_gateway.has_price_reached_target(sig.symbol, tp1_target, side=sig.side, is_sl=False)
                 hit_tp1 = await res_tp if hasattr(res_tp, "__await__") else res_tp
@@ -320,7 +321,7 @@ class ExecuteSignalUseCase:
                     message=f"Signal rejected: Price breached Stop Loss ({sig.sl_price}).",
                 )
 
-        if not getattr(cmd, "is_manual", False) and hasattr(self.exchange_gateway, "has_price_reached_target") and sig.sl_price:
+        if not getattr(cmd, "is_manual", False) and self.exchange_gateway is not None and hasattr(self.exchange_gateway, "has_price_reached_target") and sig.sl_price:
             try:
                 res_sl = self.exchange_gateway.has_price_reached_target(sig.symbol, sig.sl_price, side=sig.side, is_sl=True)
                 hit_sl = await res_sl if hasattr(res_sl, "__await__") else res_sl

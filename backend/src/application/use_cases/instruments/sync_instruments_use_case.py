@@ -112,7 +112,9 @@ class SyncInstrumentsUseCase:
             return inst
 
         # Dynamic on-demand resolution from Binance gateway
-        await self._ensure_authenticated_client()
+        if self.exchange_gateway is None:
+            logger.warning("No exchange gateway configured for sync_instruments.")
+            return None
 
         logger.info(f"Symbol {clean_sym} not in database. Fetching live specifications from Binance...")
         try:
@@ -145,7 +147,7 @@ class SyncInstrumentsUseCase:
                 inst = await self.instrument_repo.create(create_dto)
                 logger.info(f"Successfully registered and synced new Instrument: {clean_sym} (ID: {inst.id})")
 
-                if self.bracket_repo:
+                if self.bracket_repo and self.exchange_gateway is not None:
                     try:
                         await self._ensure_authenticated_client()
                         b_data = await self.exchange_gateway.fetch_leverage_brackets(clean_sym)
@@ -172,6 +174,13 @@ class SyncInstrumentsUseCase:
         now_utc = datetime.now(timezone.utc)
         resolved_ex_id = await self._ensure_exchange_id(exchange_id)
         await self._ensure_authenticated_client()
+        if self.exchange_gateway is None:
+            logger.warning("No exchange gateway configured for sync_instruments.")
+            return SyncInstrumentsResponseDTO(
+                synced_instruments=0,
+                synced_brackets=0,
+                timestamp=now_utc,
+            )
         try:
             metadata_list = await self.exchange_gateway.fetch_instruments_metadata()
             if not metadata_list:

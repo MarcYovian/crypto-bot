@@ -7,15 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import TradingAccount
 from src.presentation.api.schemas.master import TradingAccountCreate, TradingAccountUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ITradingAccountRepository
 
 
-class TradingAccountRepository(BaseRepository[TradingAccount, TradingAccountCreate, TradingAccountUpdate]):
+class TradingAccountRepository(BaseRepository[TradingAccount, TradingAccountCreate, TradingAccountUpdate], ITradingAccountRepository):
     """CRUD repository for the ``trading_accounts`` table."""
 
     def __init__(self, session: AsyncSession):
         super().__init__(TradingAccount, session)
 
-    async def get_active_account(self, exchange_id: int) -> Optional[TradingAccount]:
+    async def get_active_account(self, exchange_id: int = 1) -> Optional[TradingAccount]:
         """Fetch the primary active account for an exchange.
         
         Args:

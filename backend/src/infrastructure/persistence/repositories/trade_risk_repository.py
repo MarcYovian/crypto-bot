@@ -8,9 +8,10 @@ from src.infrastructure.persistence.models import TradeRisk, Trade
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.risk import TradeRiskCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ITradeRiskRepository
 
 
-class TradeRiskRepository(BaseRepository[TradeRisk, TradeRiskCreate, BaseSchema]):
+class TradeRiskRepository(BaseRepository[TradeRisk, TradeRiskCreate, BaseSchema], ITradeRiskRepository):
     """CRUD repository for the ``trade_risk`` table."""
 
     def __init__(self, session: AsyncSession):

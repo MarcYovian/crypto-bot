@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import BotSetting
 from src.presentation.api.schemas.system import BotSettingCreate, BotSettingUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IBotSettingRepository
 
 
-class BotSettingRepository(BaseRepository[BotSetting, BotSettingCreate, BotSettingUpdate]):
+class BotSettingRepository(BaseRepository[BotSetting, BotSettingCreate, BotSettingUpdate], IBotSettingRepository):
     """CRUD repository for the ``bot_settings`` table."""
 
     def __init__(self, session: AsyncSession):

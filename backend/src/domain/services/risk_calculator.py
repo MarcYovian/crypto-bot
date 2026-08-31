@@ -420,7 +420,7 @@ class RiskCalculatorDomainService:
                             required_margin=initial_required_margin,
                             available_margin=avail_margin,
                             shortfall=shortfall,
-                            position_size=initial_position_size if 'initial_position_size' in locals() else position_size,
+                            position_size=position_size,
                             notional=initial_notional,
                             leverage=effective_leverage,
                             risk_amount=risk_amount,

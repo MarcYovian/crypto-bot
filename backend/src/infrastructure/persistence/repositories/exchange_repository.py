@@ -7,9 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import Exchange
 from src.presentation.api.schemas.master import ExchangeCreate, ExchangeUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IExchangeRepository
 
 
-class ExchangeRepository(BaseRepository[Exchange, ExchangeCreate, ExchangeUpdate]):
+class ExchangeRepository(BaseRepository[Exchange, ExchangeCreate, ExchangeUpdate], IExchangeRepository):
     """CRUD repository for the ``exchanges`` table."""
 
     def __init__(self, session: AsyncSession):

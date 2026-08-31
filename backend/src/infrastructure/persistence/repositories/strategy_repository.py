@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import Strategy
 from src.presentation.api.schemas.master import StrategyCreate, StrategyUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IStrategyRepository
 
 
-class StrategyRepository(BaseRepository[Strategy, StrategyCreate, StrategyUpdate]):
+class StrategyRepository(BaseRepository[Strategy, StrategyCreate, StrategyUpdate], IStrategyRepository):
     """CRUD repository for the ``strategies`` table."""
 
     def __init__(self, session: AsyncSession):

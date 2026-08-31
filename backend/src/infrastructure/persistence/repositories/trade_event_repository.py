@@ -9,9 +9,10 @@ from src.infrastructure.persistence.models import TradeEvent
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.event_summary import TradeEventCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ITradeEventRepository
 
 
-class TradeEventRepository(BaseRepository[TradeEvent, TradeEventCreate, BaseSchema]):
+class TradeEventRepository(BaseRepository[TradeEvent, TradeEventCreate, BaseSchema], ITradeEventRepository):
     """CRUD repository for the ``trade_events`` table."""
 
     def __init__(self, session: AsyncSession):

@@ -10,18 +10,18 @@ from src.domain.ports.event_publisher import IDomainEventPublisher
 
 logger = logging.getLogger(__name__)
 
-EventHandler = Callable[[DomainEvent], Awaitable[None]]
+EventHandler = Callable[[Any], Awaitable[None]]
 
 
 class InMemoryDomainEventPublisher(IDomainEventPublisher):
     """Asynchronous in-memory event bus for decoupling domain events from external side effects."""
 
     def __init__(self) -> None:
-        self._handlers: Dict[Type[DomainEvent], List[EventHandler]] = {}
+        self._handlers: Dict[Type[Any], List[EventHandler]] = {}
         self._global_handlers: List[EventHandler] = []
         self._lock = asyncio.Lock()
 
-    def subscribe(self, event_type: Type[DomainEvent], handler: EventHandler) -> None:
+    def subscribe(self, event_type: Type[Any], handler: EventHandler) -> None:
         """Register an async handler function for a specific DomainEvent type."""
         if event_type not in self._handlers:
             self._handlers[event_type] = []

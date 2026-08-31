@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import Watchlist, Instrument
 from src.presentation.api.schemas.master import WatchlistCreate, WatchlistUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IWatchlistRepository
 
 
-class WatchlistRepository(BaseRepository[Watchlist, WatchlistCreate, WatchlistUpdate]):
+class WatchlistRepository(BaseRepository[Watchlist, WatchlistCreate, WatchlistUpdate], IWatchlistRepository):
     """CRUD repository for the ``watchlist`` table."""
 
     def __init__(self, session: AsyncSession):

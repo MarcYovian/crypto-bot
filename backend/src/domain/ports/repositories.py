@@ -76,20 +76,18 @@ class ITradeRepository(ABC):
         """Count active trades for an account."""
         ...
 
-    @abstractmethod
     async def count_open_positions(self, account_id: Optional[int] = None) -> int:
         """Count active open positions."""
-        ...
+        return await self.count_active_trades(account_id or 1)
 
     @abstractmethod
     async def get_all_active_trades(self, account_id: Optional[int] = None) -> List[Any]:
         """Fetch all trades with status in WAITING_ENTRY, OPEN, PARTIAL."""
         ...
 
-    @abstractmethod
     async def get_active_trades(self, account_id: Optional[int] = None) -> List[Any]:
         """Alias for get_all_active_trades."""
-        ...
+        return await self.get_all_active_trades(account_id)
 
     @abstractmethod
     async def get_active_trades_with_instrument(self, account_id: Optional[int] = None) -> List[Any]:
@@ -118,10 +116,9 @@ class ITradeRepository(ABC):
         """Update stop loss price level."""
         ...
 
-    @abstractmethod
     async def update_stop_loss(self, trade_id: int, new_sl_price: Decimal) -> Optional[Any]:
         """Alias for update_sl_price."""
-        ...
+        return await self.update_sl_price(trade_id, new_sl_price)
 
     @abstractmethod
     async def reduce_position_qty(
@@ -219,10 +216,9 @@ class IOrderRepository(ABC):
         """Fetch all orders attached to a trade position."""
         ...
 
-    @abstractmethod
     async def get_open_orders_by_trade(self, trade_id: int) -> List[Any]:
         """Fetch active orders for a trade."""
-        ...
+        return await self.get_open_orders_by_trade_id(trade_id)
 
     @abstractmethod
     async def get_open_orders_by_trade_id(self, trade_id: int) -> List[Any]:
@@ -286,9 +282,10 @@ class IInstrumentRepository(ABC):
         """Fetch all instruments with loaded leverage brackets."""
         ...
 
-    @abstractmethod
     async def get_whitelisted_symbols(self) -> List[str]:
-        ...
+        """Fetch symbols of all active instruments."""
+        active = await self.get_all_active()
+        return [getattr(x, "symbol", "") for x in active if getattr(x, "symbol", "")]
 
     @abstractmethod
     async def bulk_upsert_instruments(self, instruments: Sequence[Any]) -> int:
@@ -311,9 +308,8 @@ class IInstrumentRepository(ABC):
 class IInstrumentLeverageBracketRepository(ABC):
     """Abstract Port for Instrument leverage bracket tiers."""
 
-    @abstractmethod
     async def get_by_instrument_id(self, instrument_id: int) -> List[Any]:
-        ...
+        return await self.get_brackets_by_instrument(instrument_id)
 
     @abstractmethod
     async def get_brackets_by_instrument(self, instrument_id: int) -> List[Any]:
@@ -335,9 +331,8 @@ class IInstrumentLeverageBracketRepository(ABC):
         """Bulk update leverage brackets."""
         ...
 
-    @abstractmethod
     async def sync_brackets(self, instrument_id: int, brackets_data: List[Dict[str, Any]]) -> None:
-        ...
+        await self.bulk_upsert_brackets(instrument_id, brackets_data)
 
 
 class IWatchlistRepository(ABC):
@@ -347,9 +342,8 @@ class IWatchlistRepository(ABC):
     async def get_by_instrument_id(self, instrument_id: int) -> Optional[Any]:
         ...
 
-    @abstractmethod
     async def is_symbol_whitelisted(self, symbol: str) -> bool:
-        ...
+        return await self.is_symbol_enabled(symbol)
 
     @abstractmethod
     async def is_symbol_enabled(self, symbol: str) -> bool:
@@ -441,13 +435,11 @@ class IDailyRiskRepository(ABC):
         """Calculate total margin committed across all trades for the day."""
         ...
 
-    @abstractmethod
     async def get_or_create_daily_risk(self, account_id: int, target_date: Optional[date] = None) -> Any:
-        ...
+        return await self.get_by_account_id(account_id, target_date)
 
-    @abstractmethod
     async def add_realized_pnl(self, account_id: int, pnl_delta: Decimal, target_date: Optional[date] = None) -> Any:
-        ...
+        return await self.get_by_account_id(account_id, target_date)
 
     @abstractmethod
     async def create(self, schema: Any) -> Any:
@@ -599,9 +591,8 @@ class ISignalProviderRepository(ABC):
         """Fetch all signal providers."""
         ...
 
-    @abstractmethod
     async def get_active_providers(self) -> List[Any]:
-        ...
+        return await self.get_by_type("TELEGRAM")
 
     @abstractmethod
     async def get_provider_performance_summary(self, provider_id: int) -> Dict[str, Any]:
@@ -624,9 +615,8 @@ class IStrategyRepository(ABC):
     async def get(self, id: int) -> Optional[Any]:
         ...
 
-    @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Any]:
-        ...
+        return await self.get_by_name(code)
 
     @abstractmethod
     async def get_by_name(self, name: str) -> Optional[Any]:
@@ -738,9 +728,8 @@ class IExecutionRepository(ABC):
         """Calculate cumulative realized PnL from closing fills."""
         ...
 
-    @abstractmethod
     async def get_by_trade_id(self, trade_id: int) -> List[Any]:
-        ...
+        return await self.get_executions_by_trade_id(trade_id)
 
     @abstractmethod
     async def create(self, schema: Any) -> Any:
@@ -780,15 +769,14 @@ class ITradeEventRepository(ABC):
         """Fetch recent events of a specific type across trades."""
         ...
 
-    @abstractmethod
     async def get_by_trade_id(self, trade_id: int) -> List[Any]:
-        ...
+        return await self.get_events_by_trade(trade_id)
 
-    @abstractmethod
     async def record_event(
         self, trade_id: int, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None
     ) -> Any:
-        ...
+        merged_payload = {"message": message, **(payload or {})}
+        return await self.log_event(trade_id, event_type, merged_payload)
 
 
 class ITradeSummaryRepository(ABC):
@@ -906,13 +894,11 @@ class IBotSettingRepository(ABC):
     async def get_all_as_dict(self) -> Dict[str, str]:
         ...
 
-    @abstractmethod
     async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        ...
+        return await self.get_value(key, default)
 
-    @abstractmethod
     async def set_setting(self, key: str, value: str) -> Any:
-        ...
+        return await self.set_value(key, value)
 
 
 class IBotLogRepository(ABC):
@@ -958,9 +944,8 @@ class IBotLogRepository(ABC):
         """Purge logs older than retention days."""
         ...
 
-    @abstractmethod
     async def log(self, level: str, module: str, message: str, details: Optional[Dict[str, Any]] = None) -> Any:
-        ...
+        return await self.create_log(level=level, message=message, module=module, context=details)
 
 
 class IUserRepository(ABC):

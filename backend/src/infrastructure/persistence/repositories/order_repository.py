@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import Order
 from src.presentation.api.schemas.order import OrderCreate, OrderUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IOrderRepository
 
 
-class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate]):
+class OrderRepository(BaseRepository[Order, OrderCreate, OrderUpdate], IOrderRepository):
     """CRUD repository for the ``orders`` table."""
 
     def __init__(self, session: AsyncSession):

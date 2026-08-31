@@ -58,21 +58,24 @@ class TradingCredentialRepository(
 
         if "api_key" in data:
             raw_key = data.pop("api_key")
-            db_obj.encrypted_api_key = encrypt_secret(raw_key) if raw_key else ""
+            db_obj.encrypted_api_key = str(encrypt_secret(raw_key)) if raw_key else ""
         if "encrypted_api_key" in data:
-            db_obj.encrypted_api_key = data.pop("encrypted_api_key")
+            val = data.pop("encrypted_api_key")
+            db_obj.encrypted_api_key = str(val or "")
 
         if "secret_key" in data:
             raw_sec = data.pop("secret_key")
-            db_obj.encrypted_secret_key = encrypt_secret(raw_sec) if raw_sec else ""
+            db_obj.encrypted_secret_key = str(encrypt_secret(raw_sec)) if raw_sec else ""
         if "encrypted_secret_key" in data:
-            db_obj.encrypted_secret_key = data.pop("encrypted_secret_key")
+            val = data.pop("encrypted_secret_key")
+            db_obj.encrypted_secret_key = str(val or "")
 
         if "passphrase" in data:
             raw_pass = data.pop("passphrase")
-            db_obj.encrypted_passphrase = encrypt_secret(raw_pass) if raw_pass else None
+            db_obj.encrypted_passphrase = str(encrypt_secret(raw_pass)) if raw_pass else None
         if "encrypted_passphrase" in data:
-            db_obj.encrypted_passphrase = data.pop("encrypted_passphrase")
+            val = data.pop("encrypted_passphrase")
+            db_obj.encrypted_passphrase = str(val) if val is not None else None
 
         for key, value in data.items():
             setattr(db_obj, key, value)

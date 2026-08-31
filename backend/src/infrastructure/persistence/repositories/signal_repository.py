@@ -8,9 +8,10 @@ from sqlalchemy.orm import selectinload
 from src.infrastructure.persistence.models import TradingSignal
 from src.presentation.api.schemas.signal import TradingSignalCreate, TradingSignalUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ISignalRepository
 
 
-class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, TradingSignalUpdate]):
+class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, TradingSignalUpdate], ISignalRepository):
     """CRUD repository for the ``trading_signals`` table."""
 
     def __init__(self, session: AsyncSession):

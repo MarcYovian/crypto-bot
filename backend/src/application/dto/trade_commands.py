@@ -65,6 +65,7 @@ class OrderFillPayload:
     trade_id: Optional[int] = None
     order_id: Optional[int] = None
     purpose: Optional[OrderPurpose] = None
+    realized_pnl: Optional[Decimal] = None
 
 
 @dataclass

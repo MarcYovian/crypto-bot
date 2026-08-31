@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from src.domain.aggregates.trade_aggregate import TradeAggregate
+from src.domain.aggregates.order_aggregate import OrderAggregate
 from src.domain.value_objects.side import MarginMode, OrderSide
 from src.domain.value_objects.trade_status import TradeStatus
 from src.infrastructure.persistence.mappers.base_mapper import IMapper
@@ -26,9 +27,13 @@ class TradeMapper(IMapper[TradeAggregate, Trade]):
             if tp_col is not None:
                 tp_targets.append(Decimal(str(tp_col)))
 
-        mapped_orders = []
+        mapped_orders: List[OrderAggregate] = []
         if hasattr(orm_entity, "orders") and orm_entity.orders:
-            mapped_orders = [OrderMapper.to_domain(o) for o in orm_entity.orders if o is not None]
+            for o in orm_entity.orders:
+                if o is not None:
+                    dom_o = OrderMapper.to_domain(o)
+                    if dom_o is not None:
+                        mapped_orders.append(dom_o)
 
         return TradeAggregate(
             id=orm_entity.id,

@@ -9,9 +9,10 @@ from src.infrastructure.persistence.repositories.base import BaseRepository
 from src.infrastructure.persistence.models.trading_signals import TradingSignal
 from src.infrastructure.persistence.models.trades import Trade
 from src.infrastructure.persistence.models.trade_summaries import TradeSummary
+from src.domain.ports.repositories import ISignalProviderRepository
 
 
-class SignalProviderRepository(BaseRepository[SignalProvider, SignalProviderCreate, SignalProviderUpdate]):
+class SignalProviderRepository(BaseRepository[SignalProvider, SignalProviderCreate, SignalProviderUpdate], ISignalProviderRepository):
     """CRUD repository for the ``signal_providers`` table."""
 
     def __init__(self, session: AsyncSession):

@@ -8,9 +8,10 @@ from src.infrastructure.persistence.models import Execution
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.order import ExecutionCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IExecutionRepository
 
 
-class ExecutionRepository(BaseRepository[Execution, ExecutionCreate, BaseSchema]):
+class ExecutionRepository(BaseRepository[Execution, ExecutionCreate, BaseSchema], IExecutionRepository):
     """CRUD repository for the ``executions`` table."""
 
     def __init__(self, session: AsyncSession):

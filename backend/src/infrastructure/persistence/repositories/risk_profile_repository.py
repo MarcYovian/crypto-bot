@@ -5,15 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import RiskProfile
 from src.presentation.api.schemas.master import RiskProfileCreate, RiskProfileUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IRiskProfileRepository
 
 
-class RiskProfileRepository(BaseRepository[RiskProfile, RiskProfileCreate, RiskProfileUpdate]):
+class RiskProfileRepository(BaseRepository[RiskProfile, RiskProfileCreate, RiskProfileUpdate], IRiskProfileRepository):
     """CRUD repository for the ``risk_profiles`` table."""
 
     def __init__(self, session: AsyncSession):
         super().__init__(RiskProfile, session)
 
-    async def get_active_profile(self) -> Optional[RiskProfile]:
+    async def get_active_profile(self, user_id: Optional[int] = None) -> Optional[RiskProfile]:
         """Fetch the current active risk profile configuration.
             
         Returns:

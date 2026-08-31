@@ -9,9 +9,10 @@ from src.infrastructure.persistence.models import BotLog
 from src.presentation.api.schemas.common import BaseSchema
 from src.presentation.api.schemas.system import BotLogCreate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import IBotLogRepository
 
 
-class BotLogRepository(BaseRepository[BotLog, BotLogCreate, BaseSchema]):
+class BotLogRepository(BaseRepository[BotLog, BotLogCreate, BaseSchema], IBotLogRepository):
     """CRUD repository for the ``bot_logs`` table."""
 
     def __init__(self, session: AsyncSession):

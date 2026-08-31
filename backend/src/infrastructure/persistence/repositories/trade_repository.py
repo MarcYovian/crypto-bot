@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.persistence.models import Trade, Order, TradeEvent
 from src.presentation.api.schemas.trade import TradeCreate, TradeUpdate, TradeStatusUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
+from src.domain.ports.repositories import ITradeRepository
 
 
-class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
+class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate], ITradeRepository):
     """CRUD and lifecycle state-machine repository for the ``trades`` table."""
 
     def __init__(self, session: AsyncSession):
@@ -82,6 +83,24 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate]):
             )
             .limit(1)
         )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_active_trade_by_symbol(
+        self, symbol: str, account_id: Optional[int] = None
+    ) -> Optional[Trade]:
+        """Fetch active trade for a given symbol."""
+        stmt = (
+            select(Trade)
+            .join(Trade.instrument)
+            .where(
+                Trade.instrument.has(symbol=symbol.strip().upper()),
+                Trade.status.in_(["WAITING_ENTRY", "OPEN", "PARTIAL"]),
+            )
+        )
+        if account_id is not None:
+            stmt = stmt.where(Trade.account_id == account_id)
+        stmt = stmt.limit(1)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

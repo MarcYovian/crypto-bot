@@ -86,7 +86,7 @@ async def write_ws_order_cache(
         return ""
 
     try:
-        root_path = base_path or getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/wsbinance/")
+        root_path = str(base_path or getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/wsbinance/") or "/var/log/cryptobot/wsbinance/")
         resolved_chat_id = chat_id or getattr(settings, "TELEGRAM_CHAT_ID", "846740826") or "default"
         clean_chat_id = _path_name_parser(str(resolved_chat_id))
 
@@ -140,7 +140,7 @@ def archive_ws_cache_sync(
     Returns:
         List of result summaries per chat_id.
     """
-    root_path = base_path or getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/wsbinance/")
+    root_path = str(base_path or getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/wsbinance/") or "/var/log/cryptobot/wsbinance/")
     if not os.path.exists(root_path):
         return []
 
