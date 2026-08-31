@@ -154,7 +154,11 @@ class DailyRiskRepository(BaseRepository[DailyRiskConfig, DailyRiskConfigCreate,
         result = await self.session.execute(stmt)
         total_allocated = Decimal(str(result.scalar_one()))
 
-        remaining = Decimal(str(config.risk_amount)) - total_allocated
+        daily_budget = getattr(config, "daily_risk_amount", None)
+        if daily_budget is None or Decimal(str(daily_budget)) <= Decimal("0"):
+            daily_budget = config.risk_amount
+
+        remaining = Decimal(str(daily_budget)) - total_allocated
         return max(Decimal("0.0"), remaining)
 
     async def get_total_margin_used(self, daily_risk_id: int) -> Decimal:

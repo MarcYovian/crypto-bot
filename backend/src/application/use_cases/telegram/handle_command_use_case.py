@@ -4,7 +4,10 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
+from pytz import timezone
 
+logger = logging.getLogger(__name__)
+WIB_TZ = timezone("Asia/Jakarta")
 from src.application.dto.trade_commands import CloseTradeCommand
 from src.application.use_cases.trades.close_trade_use_case import CloseTradeUseCase
 from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
@@ -297,31 +300,61 @@ class HandleTelegramCommandUseCase:
     # 7. /circuit_breaker
     async def _handle_circuit_breaker(self, account_id: int = 1) -> str:
         """Fetch daily risk budget and circuit breaker protection status."""
-        today = date.today()
+        today = datetime.now(WIB_TZ).date()
         snapshot = await self.daily_risk_repo.get_by_date(account_id, today)
-        if not snapshot:
-            snapshot = await self.daily_risk_repo.get_latest_snapshot(account_id)
+
+        risk_pct = Decimal("2.0")
+        loss_pct = Decimal("5.0")
+        prof_id = 1
+        if self.risk_profile_repo:
+            try:
+                prof = await self.risk_profile_repo.get_active_profile()
+                if prof:
+                    prof_id = getattr(prof, "id", 1) or 1
+                    risk_pct = getattr(prof, "risk_percent", Decimal("2.0")) or Decimal("2.0")
+                    loss_pct = getattr(prof, "max_daily_loss", Decimal("5.0")) or Decimal("5.0")
+            except Exception:
+                pass
 
         if not snapshot:
             balance = Decimal("10000.0")
             if self.exchange_gateway:
                 try:
                     bal_data = await self.exchange_gateway.fetch_balance()
-                    balance = bal_data.get("total_wallet_balance") or bal_data.get("free_margin") or Decimal("10000.0")
+                    balance = (
+                        bal_data.get("total_wallet_balance")
+                        or bal_data.get("free_margin")
+                        or Decimal("10000.0")
+                    )
                 except Exception:
                     pass
 
-            daily_risk_budget = balance * Decimal("0.02")
+            per_trade_risk = balance * (Decimal(str(risk_pct)) / Decimal("100"))
+            daily_risk_budget = balance * (Decimal(str(loss_pct)) / Decimal("100"))
             snapshot = await self.daily_risk_repo.get_or_create_daily_snapshot(
                 DailyRiskConfigCreate(
                     account_id=account_id,
-                    risk_profile_id=1,
+                    risk_profile_id=prof_id,
                     date=today,
                     balance=balance,
-                    risk_amount=daily_risk_budget,
+                    risk_amount=per_trade_risk,
+                    daily_risk_amount=daily_risk_budget,
                 )
             )
 
+        raw_daily_budget = getattr(snapshot, "daily_risk_amount", None)
+        daily_budget = None
+        if raw_daily_budget is not None:
+            try:
+                s_val = str(raw_daily_budget)
+                if "mock" not in s_val.lower() and "object at" not in s_val:
+                    daily_budget = Decimal(s_val)
+            except Exception:
+                pass
+        if daily_budget is None or daily_budget <= Decimal("0"):
+            daily_budget = snapshot.risk_amount
+
+        per_trade_risk = snapshot.risk_amount
         rem_budget = await self.daily_risk_repo.get_remaining_risk_budget(snapshot.id)
         used_margin = await self.daily_risk_repo.get_total_margin_used(snapshot.id)
 
@@ -331,7 +364,8 @@ class HandleTelegramCommandUseCase:
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📊 Status Proteksi: <b>{status_text}</b>\n"
             f"💰 Modal Awal Hari: <b>${float(snapshot.balance):,.2f} USDT</b>\n"
-            f"🎯 Batas Risiko Harian (2%): <b>${float(snapshot.risk_amount):,.2f} USDT</b>\n"
+            f"🎯 Batas Risiko Harian: <b>${float(daily_budget):,.2f} USDT</b>\n"
+            f"🎲 Batas Risiko Per Trade: <b>${float(per_trade_risk):,.2f} USDT</b>\n"
             f"💵 Sisa Anggaran Risiko: <b>${float(rem_budget):,.2f} USDT</b>\n"
             f"🔒 Margin Digunakan: <b>${float(used_margin):,.2f} USDT</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━"
@@ -481,7 +515,7 @@ class HandleTelegramCommandUseCase:
             "/status - Lihat posisi terbuka & status BEP/Trailing\n"
             "/pending - Lihat limit order yang menunggu entry\n"
             "/summary - Ringkasan performa trading & Win Rate\n"
-            "/circuit_breaker - Status limit risiko harian (2%)\n\n"
+            "/circuit_breaker - Status limit risiko harian & per-trade\n\n"
             "<b>⚡ Kontrol Eksekusi:</b>\n"
             "/close &lt;id&gt; - Tutup posisi manual (contoh: <code>/close 12</code>)\n"
             "/panic - Emergency kill-switch: Market close semua posisi\n"

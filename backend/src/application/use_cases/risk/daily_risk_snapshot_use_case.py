@@ -67,13 +67,17 @@ class DailyRiskSnapshotUseCase:
                 was_profile_created = True
 
         profile_id = profile.id if profile else 1
-        loss_limit_pct = (
+        trade_risk_pct = (
             profile.risk_percent if profile and profile.risk_percent else Decimal("2.0")
+        )
+        daily_loss_pct = (
+            profile.max_daily_loss if profile and profile.max_daily_loss else Decimal("5.0")
         )
         profile_name = profile.name if profile else "DEFAULT"
 
-        # 3. Calculate max daily loss budget in USDT (strictly 2% or profile risk percent)
-        daily_risk_budget = balance * (loss_limit_pct / Decimal("100"))
+        # 3. Calculate per-trade risk amount and total daily loss budget in USDT
+        per_trade_risk = balance * (trade_risk_pct / Decimal("100"))
+        daily_risk_budget = balance * (daily_loss_pct / Decimal("100"))
 
         # 4. Save idempotent snapshot
         snapshot = await self.daily_risk_repo.get_or_create_daily_snapshot(
@@ -82,7 +86,8 @@ class DailyRiskSnapshotUseCase:
                 risk_profile_id=profile_id,
                 date=target_date,
                 balance=balance,
-                risk_amount=daily_risk_budget,
+                risk_amount=per_trade_risk,
+                daily_risk_amount=daily_risk_budget,
             )
         )
 
@@ -103,19 +108,25 @@ class DailyRiskSnapshotUseCase:
                         f"⚠️ <b>PEMBERITAHUAN PROFIL RISIKO</b>\n\n"
                         f"Profil risiko aktif tidak ditemukan di sistem. Sistem secara otomatis membuat dan mengaktifkan profil default baru:\n"
                         f"• <b>Nama Profil:</b> <code>{profile_name}</code>\n"
-                        f"• <b>Risiko per Trade:</b> <code>{loss_limit_pct}%</code>\n"
+                        f"• <b>Risiko per Trade:</b> <code>{trade_risk_pct}%</code>\n"
                         f"• <b>Batas Maks Open Trade:</b> <code>{max_open}</code>\n\n"
                         f"👉 <i>Anda dapat menyesuaikan parameter ini sewaktu-waktu pada konfigurasi profil risiko.</i>"
                     )
                     await self.notification_gateway.send_message(chat_id="ADMIN_CHANNEL", text=create_msg)
 
+                now_wib_str = datetime.now(WIB_TZ).strftime("%d %b %Y, %H:%M:%S WIB")
                 msg = (
-                    f"🌅 <b>DAILY RISK SNAPSHOT (00:00 WIB)</b>\n"
-                    f"📅 Tanggal: <code>{target_date.isoformat()}</code>\n"
-                    f"💰 Saldo Modal Awal: <b>${balance:,.2f} USDT</b>\n"
-                    f"🛡️ Profil Risiko: <b>{profile_name}</b> ({loss_limit_pct}%)\n"
-                    f"🎯 Anggaran Risiko Harian: <b>${daily_risk_budget:,.2f} USDT</b>\n"
-                    f"✅ Circuit Breaker: <b>ACTIVE & READY</b>"
+                    "🌅 <b>DAILY RISK SNAPSHOT</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⏰ <b>Waktu Eksekusi:</b> <code>{now_wib_str}</code>\n"
+                    f"💰 <b>Modal Awal Hari:</b> <b>${float(balance):,.2f} USDT</b>\n"
+                    f"🛡️ <b>Profil Risiko:</b> <code>{profile_name}</code>\n\n"
+                    "📊 <b>BATAS & ANGGARAN RISIKO:</b>\n"
+                    f"• <b>Batas Rugi Harian ({float(daily_loss_pct):.1f}%):</b> <b>${float(daily_risk_budget):,.2f} USDT</b>\n"
+                    f"• <b>Batas Risiko / Trade ({float(trade_risk_pct):.1f}%):</b> <b>${float(per_trade_risk):,.2f} USDT</b>\n\n"
+                    "🔒 <b>STATUS CIRCUIT BREAKER:</b>\n"
+                    "🟢 <b>ACTIVE & READY</b> <i>(Sistem proteksi siap mengawal drawdown)</i>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━"
                 )
                 await self.notification_gateway.send_message(chat_id="ADMIN_CHANNEL", text=msg)
             except Exception as e:

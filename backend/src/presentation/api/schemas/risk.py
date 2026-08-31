@@ -17,7 +17,8 @@ class DailyRiskConfigBase(BaseSchema):
     risk_profile_id: int = Field(..., gt=0, description="FK to risk_profiles table")
     date: py_date = Field(..., description="Snapshot date (YYYY-MM-DD)")
     balance: Decimal = Field(..., gt=0, description="Locked total equity at 00:00 WIB")
-    risk_amount: Decimal = Field(..., gt=0, description="Maximum risk budget for the day")
+    risk_amount: Decimal = Field(..., gt=0, description="Per-trade risk amount for the day (USDT)")
+    daily_risk_amount: Decimal = Field(default=Decimal("0"), ge=0, description="Maximum total daily risk budget (USDT)")
 
 
 class DailyRiskConfigCreate(DailyRiskConfigBase):

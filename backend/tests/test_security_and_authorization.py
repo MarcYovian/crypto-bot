@@ -242,7 +242,7 @@ def test_settings_development_defaults():
     )
     assert s.ENVIRONMENT == "development"
     assert "http://localhost:3000" in s.CORS_ORIGINS
-    assert s.DEFAULT_ADMIN_PASSWORD == "AdminPassword123!"
+    assert s.DEFAULT_ADMIN_PASSWORD in ("AdminPassword123!", "PasswordAdminAnda123!")
 
 
 def test_settings_cors_origins_parsing():

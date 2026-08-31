@@ -30,7 +30,7 @@ class GetDashboardSummaryUseCase:
 
         if daily_config:
             total_balance = float(daily_config.balance)
-            daily_risk_budget = float(daily_config.risk_amount)
+            daily_risk_budget = float(getattr(daily_config, "daily_risk_amount", None) or daily_config.risk_amount)
             remaining_risk_budget = float(await self.daily_risk_repo.get_remaining_risk_budget(daily_config.id))
             margin_used = float(await self.daily_risk_repo.get_total_margin_used(daily_config.id))
             free_margin = max(0.0, total_balance - margin_used)
@@ -38,7 +38,7 @@ class GetDashboardSummaryUseCase:
             latest_config = await self.daily_risk_repo.get_latest_snapshot(account_id)
             if latest_config:
                 total_balance = float(latest_config.balance)
-                daily_risk_budget = float(latest_config.risk_amount)
+                daily_risk_budget = float(getattr(latest_config, "daily_risk_amount", None) or latest_config.risk_amount)
                 remaining_risk_budget = float(await self.daily_risk_repo.get_remaining_risk_budget(latest_config.id))
                 margin_used = float(await self.daily_risk_repo.get_total_margin_used(latest_config.id))
                 free_margin = max(0.0, total_balance - margin_used)

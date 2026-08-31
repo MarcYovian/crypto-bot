@@ -35,6 +35,7 @@ class DailyRiskConfig(Base):
     date: Mapped[date] = mapped_column(Date, nullable=False)
     balance: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     risk_amount: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    daily_risk_amount: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp())
 
     # Relationships

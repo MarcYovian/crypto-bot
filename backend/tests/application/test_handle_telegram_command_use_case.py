@@ -45,7 +45,7 @@ def mock_command_deps():
     daily_risk_repo.get_by_date = AsyncMock(return_value=None)
     daily_risk_repo.get_latest_snapshot = AsyncMock(return_value=None)
     daily_risk_repo.get_or_create_daily_snapshot = AsyncMock(
-        return_value=MagicMock(id=1, balance=Decimal("10000"), risk_amount=Decimal("200"))
+        return_value=MagicMock(id=1, balance=Decimal("10000"), risk_amount=Decimal("200"), daily_risk_amount=Decimal("500"))
     )
     daily_risk_repo.get_remaining_risk_budget = AsyncMock(return_value=Decimal("150"))
     daily_risk_repo.get_total_margin_used = AsyncMock(return_value=Decimal("500"))

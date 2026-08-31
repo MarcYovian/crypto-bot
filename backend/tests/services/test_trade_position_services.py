@@ -1812,8 +1812,8 @@ async def test_execute_signal_reject_if_historical_kline_breached_sl(async_sessi
 
 
 @pytest.mark.asyncio
-async def test_execute_signal_downscales_risk_to_remaining_budget(async_session: AsyncSession, setup_env: dict):
-    """Test that position size risk amount is capped by remaining_budget if it is lower than standard risk."""
+async def test_execute_signal_rejects_when_risk_exceeds_remaining_budget(async_session: AsyncSession, setup_env: dict):
+    """Test that execution is rejected with DailyRiskLimitReachedError if trade risk exceeds remaining budget."""
     acc = setup_env["account"]
 
     # Wallet: 10,000 USDT. Standard 2% risk = 200 USDT.
@@ -1827,6 +1827,7 @@ async def test_execute_signal_downscales_risk_to_remaining_budget(async_session:
             date=today,
             balance=Decimal("10000.0"),
             risk_amount=Decimal("200.0"),
+            daily_risk_amount=Decimal("500.0"),
         )
     )
 
@@ -1854,9 +1855,6 @@ async def test_execute_signal_downscales_risk_to_remaining_budget(async_session:
         exchange_gateway=mock_binance,
     )
 
-    # Entry: 60,000, SL: 58,000 (stop distance = 2,000)
-    # If risk was 200 USDT -> size = 200 / 2000 = 0.100 BTC
-    # But remaining budget is 50 USDT -> size = 50 / 2000 = 0.025 BTC!
     signal = ParsedSignalDTO(
         raw_text="BUY BTCUSDT Entry: 60000 SL: 58000 TP: 62000",
         symbol="BTCUSDT",
@@ -1868,10 +1866,10 @@ async def test_execute_signal_downscales_risk_to_remaining_budget(async_session:
         leverage=20,
     )
 
-    res = await trade_service.execute_signal(signal, account_id=acc.id)
-
-    assert res.is_success is True
-    assert res.position_size == Decimal("0.025")
+    from src.domain.exceptions.trade import DailyRiskLimitReachedError
+    import pytest
+    with pytest.raises(DailyRiskLimitReachedError):
+        await trade_service.execute_signal(signal, account_id=acc.id)
 
 
 

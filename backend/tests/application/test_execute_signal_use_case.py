@@ -47,7 +47,7 @@ def mock_deps():
     trade_repo.get_all_active_trades = AsyncMock()
     trade_repo.create = AsyncMock()
     trade_repo.update_entry_fill = AsyncMock()
-    mock_snap = MagicMock(id=1, balance=Decimal("10000.0"))
+    mock_snap = MagicMock(id=1, balance=Decimal("10000.0"), risk_amount=Decimal("200.0"), daily_risk_amount=Decimal("500.0"))
     daily_risk_repo.get_by_date.return_value = mock_snap
     daily_risk_repo.get_or_create_daily_snapshot.return_value = mock_snap
     daily_risk_repo.get_remaining_risk_budget.return_value = Decimal("200.0")

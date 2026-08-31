@@ -535,7 +535,7 @@ class TelegramNotificationAdapter(INotificationGateway):
                 {"command": "status", "description": "Lihat posisi terbuka & status BEP/Trailing"},
                 {"command": "pending", "description": "Lihat limit order yang menunggu entry"},
                 {"command": "summary", "description": "Ringkasan performa trading & Win Rate"},
-                {"command": "circuit_breaker", "description": "Status limit risiko harian (2%)"},
+                {"command": "circuit_breaker", "description": "Status limit risiko harian & per-trade"},
                 {"command": "close", "description": "Tutup posisi manual (/close <trade_id>)"},
                 {"command": "panic", "description": "Emergency kill-switch: Market close semua posisi"},
                 {"command": "pause", "description": "Jeda eksekusi sinyal trading otomatis"},

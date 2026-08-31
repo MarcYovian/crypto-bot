@@ -45,17 +45,21 @@ class CheckDailyRiskUseCase:
                 "message": "No daily risk snapshot initialized for today yet.",
             }
 
+        daily_budget = float(daily_risk.daily_risk_amount) if (hasattr(daily_risk, "daily_risk_amount") and daily_risk.daily_risk_amount and daily_risk.daily_risk_amount > Decimal("0")) else float(daily_risk.risk_amount)
+        per_trade_risk = float(daily_risk.risk_amount) if hasattr(daily_risk, "risk_amount") else 0.0
         remaining_budget = await self.daily_risk_repo.get_remaining_risk_budget(daily_risk.id)
-        is_breaker_active = remaining_budget <= Decimal("0") or (len(active_trades) >= max_open)
+        is_breaker_active = remaining_budget <= Decimal("0") or (Decimal(str(per_trade_risk)) > remaining_budget) or (len(active_trades) >= max_open)
 
         return {
             "account_id": cmd.account_id,
             "date": str(today),
             "is_circuit_breaker_active": is_breaker_active,
             "starting_balance": float(daily_risk.balance) if hasattr(daily_risk, "balance") else 0.0,
-            "allocated_risk_amount": float(daily_risk.risk_amount) if hasattr(daily_risk, "risk_amount") else 0.0,
+            "daily_risk_amount": daily_budget,
+            "per_trade_risk_amount": per_trade_risk,
+            "allocated_risk_amount": per_trade_risk,
             "remaining_risk_budget": float(remaining_budget),
             "active_trades_count": len(active_trades),
             "max_open_trades_limit": max_open,
-            "reason": "DAILY_RISK_LIMIT_REACHED" if remaining_budget <= Decimal("0") else ("MAX_OPEN_TRADES_REACHED" if len(active_trades) >= max_open else "OK"),
+            "reason": "DAILY_RISK_LIMIT_REACHED" if remaining_budget <= Decimal("0") else ("PER_TRADE_RISK_EXCEEDS_BUDGET" if Decimal(str(per_trade_risk)) > remaining_budget else ("MAX_OPEN_TRADES_REACHED" if len(active_trades) >= max_open else "OK")),
         }

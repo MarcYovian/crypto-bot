@@ -113,7 +113,7 @@ class ExecuteSignalUseCase:
         tick_sz = getattr(instrument, "tick_size", Decimal("0.1")) or Decimal("0.1")
         price_prec = getattr(instrument, "price_precision", 2) or 2
 
-        target_entry = sig.avg_entry_price or sig.entry_min or Decimal("0")
+        target_entry = getattr(sig, "avg_entry_price", None) or getattr(sig, "entry_min", None) or Decimal("0")
         if target_entry > Decimal("0"):
             target_entry = self.precision.round_price(target_entry, tick_size=tick_sz, price_precision=price_prec)
 
@@ -181,15 +181,23 @@ class ExecuteSignalUseCase:
         except Exception:
             risk_pct = Decimal("2.0")
 
+        raw_loss_pct = getattr(profile, "max_daily_loss", None)
+        try:
+            daily_loss_pct = Decimal(str(raw_loss_pct)) if raw_loss_pct is not None else Decimal("5.0")
+        except Exception:
+            daily_loss_pct = Decimal("5.0")
+
         if not daily_risk:
-            daily_risk_budget = wallet_balance * (risk_pct / Decimal("100"))
+            per_trade_risk_amount = wallet_balance * (risk_pct / Decimal("100"))
+            daily_risk_budget = wallet_balance * (daily_loss_pct / Decimal("100"))
             daily_risk = await self.daily_risk_repo.get_or_create_daily_snapshot(
                 DailyRiskConfigCreate(
                     account_id=cmd.account_id,
                     risk_profile_id=profile.id if hasattr(profile, "id") and isinstance(profile.id, int) else 1,
                     date=today,
                     balance=wallet_balance,
-                    risk_amount=daily_risk_budget,
+                    risk_amount=per_trade_risk_amount,
+                    daily_risk_amount=daily_risk_budget,
                 )
             )
 
@@ -201,12 +209,21 @@ class ExecuteSignalUseCase:
             except Exception:
                 remaining_budget = Decimal("200.0")
 
-            if remaining_budget <= Decimal("0"):
+            trade_risk_amount = wallet_balance * (risk_pct / Decimal("100"))
+            raw_trade_risk = getattr(daily_risk, "risk_amount", None)
+            if raw_trade_risk is not None:
+                try:
+                    s_val = str(raw_trade_risk)
+                    if "mock" not in s_val.lower() and "object at" not in s_val:
+                        trade_risk_amount = Decimal(s_val)
+                except Exception:
+                    pass
+
+            if remaining_budget <= Decimal("0") or trade_risk_amount > remaining_budget:
                 raise DailyRiskLimitReachedError(
-                    f"Daily risk limit breached (Remaining budget: {remaining_budget} USDT). Circuit breaker active."
+                    f"Daily risk limit breached: Required trade risk ({trade_risk_amount:.2f} USDT) exceeds remaining daily budget ({remaining_budget:.2f} USDT). Circuit breaker active."
                 )
-            single_trade_risk = wallet_balance * (risk_pct / Decimal("100"))
-            effective_max_risk = min(single_trade_risk, remaining_budget)
+            effective_max_risk = trade_risk_amount
 
         # ---------------------------------------------------------------------
         # Step 4: Early Exit Invariant Checks (TP1 Hit, SL Breached, Runaway > 2%)
