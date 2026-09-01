@@ -62,7 +62,9 @@ async def test_bot_controller_slash_command():
 async def test_telegram_bot_controller_start_polling_task():
     import asyncio
     from unittest.mock import patch, AsyncMock
-    with patch("src.infrastructure.di.container.container.telegram_connector.start_polling", new_callable=AsyncMock) as mock_poll:
+    from src.infrastructure.di.container import container
+    with patch.object(container.telegram_connector, "bot_token", "test_mock_token_123"), \
+         patch("src.infrastructure.di.container.container.telegram_connector.start_polling", new_callable=AsyncMock) as mock_poll:
         task = TelegramBotController.start_polling_task()
         assert task is not None
         task.cancel()
