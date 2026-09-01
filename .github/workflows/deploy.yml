@@ -182,9 +182,9 @@ jobs:
             <b>🚀 CI/CD DEPLOYMENT REPORT</b>
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             <b>Repository:</b> ${{ github.repository }}
-            <b>Branch/Tag:</b> <code>${{ github.ref_name }}</code>
-            <b>Commit:</b> <code>${{ github.sha }}</code>
-            <b>Author:</b> ${{ github.actor }}
-            <b>Message:</b> ${{ github.event.head_commit.message }}
+            <b>Branch/Tag:</b> <code>${{ github.event.workflow_run.head_branch || github.ref_name }}</code>
+            <b>Commit:</b> <code>${{ github.event.workflow_run.head_sha || github.sha }}</code>
+            <b>Author:</b> ${{ github.event.workflow_run.head_commit.author.name || github.actor }}
+            <b>Message:</b> ${{ github.event.workflow_run.head_commit.message || github.event.head_commit.message || 'No commit message' }}
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             <b>Status:</b> ${{ needs.deploy-homelab.result == 'success' && '✅ DEPLOYED SUCCESSFULLY' || (needs.build-and-push.result == 'failure' && '❌ BUILD FAILED' || '⚠️ DEPLOYMENT FAILED') }}
