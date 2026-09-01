@@ -5,12 +5,12 @@ from datetime import datetime, timedelta
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import BotSetting, BotLog
-from src.schemas.system import BotSettingCreate, BotLogCreate
-from src.repository.bot_setting_repository import BotSettingRepository
-from src.repository.bot_log_repository import BotLogRepository
-import src.repository as repo_package
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import BotSetting, BotLog
+from src.presentation.api.schemas.system import BotSettingCreate, BotLogCreate
+from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
+from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
+import src.infrastructure.persistence.repositories as repo_package
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -156,7 +156,7 @@ async def test_bot_log_purge_old_records(async_session: AsyncSession):
 
 
 def test_repository_package_central_exports():
-    """Verify that all 19 repository classes are correctly exported from src.repository."""
+    """Verify that all 19 repository classes are correctly exported from src.infrastructure.persistence.repositories."""
     expected_exports = [
         "BaseRepository",
         "ExchangeRepository",
@@ -180,4 +180,4 @@ def test_repository_package_central_exports():
     ]
 
     for export_name in expected_exports:
-        assert hasattr(repo_package, export_name), f"Missing export {export_name} in src.repository"
+        assert hasattr(repo_package, export_name), f"Missing export {export_name} in src.infrastructure.persistence.repositories"

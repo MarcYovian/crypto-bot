@@ -8,8 +8,8 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     Instrument,
@@ -24,11 +24,11 @@ from src.database.models import (
     Execution,
     User,
 )
-from src.repository.user_repository import UserRepository
+from src.infrastructure.persistence.repositories.user_repository import UserRepository
 from src.utils.security import get_password_hash, create_access_token
 from src.utils.cache import in_memory_cache
-from src.api.app import create_app
-from src.api.deps import get_db_session
+from src.presentation.api.app import create_app
+from src.presentation.api.deps import get_db_session
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -214,9 +214,62 @@ async def app_and_client():
         session.add_all([sig1, sig2, sig3])
         await session.commit()
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, session_factory
+    import itertools
+    counter = itertools.count(1000)
+
+    async def mock_create_order(*args, **kwargs):
+        c_id = kwargs.get("client_order_id") or f"ORD_{next(counter)}"
+        return {"exchange_order_id": f"EX_{next(counter)}", "client_order_id": c_id, "average": Decimal("50000.0")}
+
+    async def mock_create_sl(*args, **kwargs):
+        c_id = kwargs.get("client_order_id") or f"SL_{next(counter)}"
+        return {"exchange_order_id": f"EX_SL_{next(counter)}", "client_order_id": c_id}
+
+    async def mock_create_tp(*args, **kwargs):
+        c_id = kwargs.get("client_order_id") or f"TP_{next(counter)}"
+        return {"exchange_order_id": f"EX_TP_{next(counter)}", "client_order_id": c_id}
+
+    from unittest.mock import patch, AsyncMock
+    with patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_balance",
+        new_callable=AsyncMock,
+        return_value={"total_wallet_balance": Decimal("10000.0"), "free_margin": Decimal("10000.0")},
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_ticker",
+        new_callable=AsyncMock,
+        return_value={"symbol": "BTCUSDT", "last_price": Decimal("50000.0")},
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.set_leverage",
+        new_callable=AsyncMock,
+        return_value={"leverage": 20},
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.set_margin_mode",
+        new_callable=AsyncMock,
+        return_value={"marginMode": "isolated"},
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.create_order",
+        new_callable=AsyncMock,
+        side_effect=mock_create_order,
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.create_stop_loss_order",
+        new_callable=AsyncMock,
+        side_effect=mock_create_sl,
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.create_take_profit_order",
+        new_callable=AsyncMock,
+        side_effect=mock_create_tp,
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.has_price_reached_target",
+        new_callable=AsyncMock,
+        return_value=False,
+    ), patch(
+        "src.infrastructure.gateways.binance.binance_adapter.BinanceExchangeAdapter.fetch_instruments_metadata",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client, session_factory
 
     await engine.dispose()
 

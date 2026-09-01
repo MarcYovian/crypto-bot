@@ -7,25 +7,28 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Trade, Order, BotLog
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.trading_credential_repository import TradingCredentialRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.trade_repository import TradeRepository
-from src.repository.order_repository import OrderRepository
-from src.repository.trade_summary_repository import TradeSummaryRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.repository.bot_log_repository import BotLogRepository
-from src.repository.bot_setting_repository import BotSettingRepository
-from src.services.scheduler_service import SchedulerService
-from src.services.instrument_service import InstrumentService
-from src.services.position_manager import PositionManager
-from src.clients.binance_client import BinanceRestClient
-from src.clients.telegram_client import TelegramNotifierClient
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Strategy, RiskProfile, Trade, Order, BotLog
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.trading_credential_repository import TradingCredentialRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
+from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
+from src.infrastructure.scheduler.jobs import SchedulerJobs as SchedulerService
+from src.application.use_cases.instruments.sync_instruments_use_case import SyncInstrumentsUseCase as InstrumentService
+from src.application.use_cases.trades.sync_positions_use_case import SyncPositionsUseCase as PositionManager
+from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
+
+
+
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -85,7 +88,8 @@ async def sched_env(async_session: AsyncSession):
     await async_session.refresh(inst)
     await async_session.refresh(strategy)
 
-    def create_scheduler(binance_mock=None, tg_mock=None, pos_mgr=None, inst_svc=None):
+    def create_scheduler(exchange_mock=None, binance_mock=None, tg_mock=None, pos_mgr=None, inst_svc=None):
+        mock_gw = exchange_mock or binance_mock
         return SchedulerService(
             daily_risk_repo=DailyRiskRepository(async_session),
             trading_account_repo=TradingAccountRepository(async_session),
@@ -99,9 +103,12 @@ async def sched_env(async_session: AsyncSession):
             bot_setting_repo=BotSettingRepository(async_session),
             position_manager=pos_mgr,
             instrument_service=inst_svc,
-            binance_client=binance_mock,
-            telegram_client=tg_mock or AsyncMock(spec=TelegramNotifierClient),
+            exchange_gateway=mock_gw,
+            notification_gateway=tg_mock or AsyncMock(spec=INotificationGateway),
         )
+
+
+
 
     return {"exchange": exchange, "account": account, "inst": inst, "strategy": strategy, "create_scheduler": create_scheduler}
 
@@ -110,11 +117,12 @@ async def sched_env(async_session: AsyncSession):
 async def test_run_daily_risk_snapshot_job(async_session: AsyncSession, sched_env: dict):
     """Test job 1: calculating 2% daily loss budget and saving midnight snapshot."""
     env = sched_env
-    mock_binance = AsyncMock(spec=BinanceRestClient)
-    mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
-    mock_tg = AsyncMock(spec=TelegramNotifierClient)
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
+    mock_gateway.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
+    mock_tg = AsyncMock(spec=INotificationGateway)
 
-    scheduler = env["create_scheduler"](binance_mock=mock_binance, tg_mock=mock_tg)
+
+    scheduler = env["create_scheduler"](exchange_mock=mock_gateway, tg_mock=mock_tg)
 
     target_d = date(2026, 8, 24)
     snapshot = await scheduler.run_daily_risk_snapshot_job(account_id=env["account"].id, snapshot_date=target_d)
@@ -163,21 +171,21 @@ async def test_run_cleanup_orphan_orders_job(async_session: AsyncSession, sched_
     async_session.add(order)
     await async_session.commit()
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
-    mock_binance.cancel_all_orders = AsyncMock()
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
+    mock_gateway.cancel_all_orders = AsyncMock()
 
-    scheduler = env["create_scheduler"](binance_mock=mock_binance)
+    scheduler = env["create_scheduler"](exchange_mock=mock_gateway)
     cleaned = await scheduler.run_cleanup_orphan_orders_job(account_id=env["account"].id, max_age_hours=4)
 
     assert cleaned == 1
     await async_session.refresh(stale_trade)
     assert stale_trade.status == "CANCELLED"
-    assert mock_binance.cancel_all_orders.called
+    assert mock_gateway.cancel_all_orders.called
 
 
 @pytest.mark.asyncio
 async def test_run_failsafe_sync_job(async_session: AsyncSession, sched_env: dict):
-    """Test job 3: reconciling DB active trades against live Binance open positions."""
+    """Test job 3: reconciling DB active trades against live Exchange open positions."""
     env = sched_env
 
     # Active DB trade
@@ -198,19 +206,20 @@ async def test_run_failsafe_sync_job(async_session: AsyncSession, sched_env: dic
     async_session.add(active_trade)
     await async_session.commit()
 
-    # Binance has NO open positions for BTCUSDT (position closed externally)
-    mock_binance = AsyncMock(spec=BinanceRestClient)
-    mock_binance.fetch_positions = AsyncMock(return_value=[])
+    # Exchange has NO open positions for BTCUSDT (position closed externally)
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
+    mock_gateway.fetch_positions = AsyncMock(return_value=[])
 
     mock_pos_mgr = AsyncMock(spec=PositionManager)
     mock_pos_mgr.finalize_trade_closure = AsyncMock()
 
-    scheduler = env["create_scheduler"](binance_mock=mock_binance, pos_mgr=mock_pos_mgr)
+    scheduler = env["create_scheduler"](exchange_mock=mock_gateway, pos_mgr=mock_pos_mgr)
     sync_res = await scheduler.run_failsafe_sync_job(account_id=env["account"].id)
 
     assert sync_res["total_checked"] == 1
     assert sync_res["desynced_closed"] == 1
     mock_pos_mgr.finalize_trade_closure.assert_called_once_with(trade_id=active_trade.id, close_reason="FAILSAFE_SYNC")
+
 
 
 @pytest.mark.asyncio
@@ -236,11 +245,12 @@ async def test_run_sync_instruments_and_purge_logs(async_session: AsyncSession, 
 async def test_run_daily_report_and_heartbeat(async_session: AsyncSession, sched_env: dict):
     """Test job 6 (daily performance report) and job 7 (heartbeat health check)."""
     env = sched_env
-    mock_tg = AsyncMock(spec=TelegramNotifierClient)
-    mock_binance = AsyncMock(spec=BinanceRestClient)
-    mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
+    mock_tg = AsyncMock(spec=INotificationGateway)
+    mock_gateway = AsyncMock(spec=IExchangeGateway)
+    mock_gateway.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("1000.0")})
 
-    scheduler = env["create_scheduler"](binance_mock=mock_binance, tg_mock=mock_tg)
+    scheduler = env["create_scheduler"](exchange_mock=mock_gateway, tg_mock=mock_tg)
+
 
     # Job 6: Daily performance report
     perf_res = await scheduler.run_daily_performance_report_job(account_id=env["account"].id)
@@ -251,4 +261,5 @@ async def test_run_daily_report_and_heartbeat(async_session: AsyncSession, sched
     hb_res = await scheduler.run_heartbeat_health_check_job()
     assert hb_res["is_healthy"] is True
     assert hb_res["db_healthy"] is True
-    assert hb_res["binance_healthy"] is True
+    assert hb_res["exchange_healthy"] is True
+

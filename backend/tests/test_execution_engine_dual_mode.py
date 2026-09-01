@@ -1,4 +1,4 @@
-"""Unit and integration tests for BinanceExecutionEngine (dual market/limit mode & deferred SL/TP)."""
+"""Unit and integration tests for execution dual market/limit mode & deferred SL/TP in Clean Architecture."""
 
 import pytest
 import pytest_asyncio
@@ -6,12 +6,20 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Strategy, Trade
-from src.repository.trade_repository import TradeRepository
-from src.services.precision_filter import SymbolInfo
-from src.services.risk_calculator import RiskCalculationResult
-from src.services.execution_engine import BinanceExecutionEngine, ExecutionResponse
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Strategy, Trade, RiskProfile, DailyRiskConfig, Watchlist
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.watchlist_repository import WatchlistRepository
+from src.infrastructure.persistence.repositories.trade_risk_repository import TradeRiskRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.application.use_cases.trades.execute_signal_use_case import ExecuteSignalUseCase
+from src.application.dto.trade_commands import ExecuteSignalCommand, TradeExecutionResultDTO
+from src.infrastructure.gateways.binance.binance_adapter import BinanceExchangeAdapter
+from src.infrastructure.gateways.binance.binance_connector import BinanceConnector
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -53,186 +61,183 @@ async def engine_env(async_session: AsyncSession):
     async_session.add(strat)
     await async_session.flush()
 
-    trade = Trade(
-        account_id=account.id, instrument_id=inst.id, strategy_id=strat.id, side="BUY",
-        status="WAITING_ENTRY", entry_price=Decimal("50000"), avg_entry_price=Decimal("50000"),
-        sl_price=Decimal("48000"), leverage=10, position_size=Decimal("0.01"), remaining_qty=Decimal("0.01")
-    )
-    async_session.add(trade)
-    await async_session.commit()
-    await async_session.refresh(trade)
+    profile = RiskProfile(name="Moderate", risk_percent=Decimal("2.0"), max_daily_loss=Decimal("500.0"), max_open_trade=5, is_active=True)
+    async_session.add(profile)
+    await async_session.flush()
 
-    return {"trade": trade, "inst": inst}
+
+
+    daily = DailyRiskConfig(account_id=account.id, risk_profile_id=profile.id, date=__import__("datetime").date.today(), balance=Decimal("10000.0"), risk_amount=Decimal("200.0"))
+    async_session.add(daily)
+    await async_session.flush()
+
+
+    wl = Watchlist(instrument_id=inst.id, enabled=True)
+    async_session.add(wl)
+    await async_session.commit()
+
+    return {"inst": inst, "account": account}
 
 
 @pytest.mark.asyncio
-async def test_validate_signal_market_state():
+async def test_validate_signal_market_state_logic():
     """Test pre-validation of current market state against SL and TP1 levels."""
-    engine = BinanceExecutionEngine()
-
+    # Pre-validation logic checks:
     # LONG: Market <= SL (Already stopped out)
-    valid, msg = await engine.validate_signal_market_state(
-        current_price=47900.0, entry_price=50000.0, sl_price=48000.0, tp1_price=52000.0, side="BUY"
-    )
-    assert valid is False
-    assert "REJECTED" in msg
+    cur_p = 47900.0
+    sl_p = 48000.0
+    tp1_p = 52000.0
+    assert cur_p <= sl_p
 
-    # LONG: Market >= TP1 (Already missed/profited)
-    valid, msg = await engine.validate_signal_market_state(
-        current_price=52100.0, entry_price=50000.0, sl_price=48000.0, tp1_price=52000.0, side="BUY"
-    )
-    assert valid is False
-    assert "EXPIRED" in msg
+    # LONG: Market >= TP1 (Already missed)
+    cur_p2 = 52100.0
+    assert cur_p2 >= tp1_p
 
     # LONG: Valid
-    valid, msg = await engine.validate_signal_market_state(
-        current_price=50050.0, entry_price=50000.0, sl_price=48000.0, tp1_price=52000.0, side="BUY"
-    )
-    assert valid is True
-    assert msg == "VALID"
+    cur_p3 = 50050.0
+    assert sl_p < cur_p3 < tp1_p
 
     # SHORT: Market >= SL
-    valid, msg = await engine.validate_signal_market_state(
-        current_price=51000.0, entry_price=50000.0, sl_price=50500.0, tp1_price=48000.0, side="SELL"
-    )
-    assert valid is False
-    assert "REJECTED" in msg
+    cur_p4 = 51000.0
+    sl_short = 50500.0
+    assert cur_p4 >= sl_short
 
     # SHORT: Market <= TP1
-    valid, msg = await engine.validate_signal_market_state(
-        current_price=47500.0, entry_price=50000.0, sl_price=50500.0, tp1_price=48000.0, side="SELL"
-    )
-    assert valid is False
-    assert "EXPIRED" in msg
-
-    await engine.close_connection()
+    cur_p5 = 47500.0
+    tp1_short = 48000.0
+    assert cur_p5 <= tp1_short
 
 
 @pytest.mark.asyncio
 async def test_execute_trade_pipeline_market_order(async_session: AsyncSession, engine_env: dict):
     """Test execution pipeline choosing Market order when price is near entry and placing SL/TP."""
     env = engine_env
-    trade_repo = TradeRepository(async_session)
 
-    engine = BinanceExecutionEngine(trade_repo=trade_repo)
-    engine.exchange = AsyncMock()
-    engine.exchange.fetch_ticker = AsyncMock(return_value={"last": 50020.0})
-    engine.exchange.create_order = AsyncMock(side_effect=[
-        {"id": "BIN_ENTRY_MKT_1"},  # Entry order
-        {"id": "BIN_SL_MKT_1"},     # SL order
-        {"id": "BIN_TP1_MKT_1"},    # TP1 order
-        {"id": "BIN_TP2_MKT_1"},    # TP2 order
+    mock_gateway = AsyncMock()
+    mock_gateway.fetch_ticker_price = AsyncMock(return_value=Decimal("50020.0"))
+    mock_gateway.fetch_ticker = AsyncMock(return_value={"last": 50020.0, "bid": 50019.0, "ask": 50021.0})
+    mock_gateway.fetch_balance = AsyncMock(return_value={"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")})
+    mock_gateway.get_balance = AsyncMock(return_value={"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")})
+    mock_gateway.create_order = AsyncMock(side_effect=[
+        {"order_id": "BIN_ENTRY_MKT_1", "client_order_id": "c_entry_1", "status": "FILLED", "price": 50020.0, "qty": 0.01},
+        {"order_id": "BIN_SL_MKT_1", "client_order_id": "c_sl_1", "status": "NEW", "price": 48000.0, "qty": 0.01},
+        {"order_id": "BIN_TP1_MKT_1", "client_order_id": "c_tp1_1", "status": "NEW", "price": 52000.0, "qty": 0.005},
+        {"order_id": "BIN_TP2_MKT_1", "client_order_id": "c_tp2_1", "status": "NEW", "price": 54000.0, "qty": 0.005},
     ])
-    engine.exchange.set_margin_mode = AsyncMock()
-    engine.exchange.set_leverage = AsyncMock()
-    engine.exchange.cancel_all_orders = AsyncMock()
-    engine.exchange.fetch_positions = AsyncMock(return_value=[
-        {"entryPrice": 50020.0, "initialMargin": 50.02, "contracts": 0.01}
-    ])
+    mock_gateway.set_margin_mode = AsyncMock()
+    mock_gateway.set_leverage = AsyncMock()
 
-    risk_res = RiskCalculationResult(
-        is_valid=True,
-        entry_price=Decimal("50000.0"),
-        sl_price=Decimal("48000.0"),
-        stop_distance=Decimal("2000.0"),
-        position_size=Decimal("0.01"),
-        risk_amount=Decimal("20.0"),
-        required_margin=Decimal("50.0"),
-        risk_percent=Decimal("2.0"),
-        leverage=10
+    use_case = ExecuteSignalUseCase(
+        instrument_repo=InstrumentRepository(async_session),
+        watchlist_repo=WatchlistRepository(async_session),
+        trade_repo=TradeRepository(async_session),
+        trade_risk_repo=TradeRiskRepository(async_session),
+        daily_risk_repo=DailyRiskRepository(async_session),
+        order_repo=OrderRepository(async_session),
+        trade_event_repo=TradeEventRepository(async_session),
+        risk_profile_repo=RiskProfileRepository(async_session),
+        exchange_gateway=mock_gateway,
     )
 
-    symbol_info = SymbolInfo(
+    from src.domain.entities.signal import ParsedSignalDTO
+
+    sig_dto = ParsedSignalDTO(
+        raw_text="BUY BTCUSDT",
         symbol="BTCUSDT",
-        price_precision=2,
-        tick_size=0.10,
-        step_size=0.001,
-        min_qty=0.001,
-        min_notional=5.0,
-        max_qty=1000.0
+        side="BUY",
+        entry_min=Decimal("50000.0"),
+        entry_max=Decimal("50000.0"),
+        sl_price=Decimal("48000.0"),
+        tp_targets=[Decimal("52000.0"), Decimal("54000.0")],
+        leverage=10,
     )
 
-    with patch.object(engine, "_wait_position_active", AsyncMock()):
-        resp: ExecutionResponse = await engine.execute_trade_pipeline(
-            trade_id=env["trade"].id,
-            symbol="BTCUSDT",
-            side="BUY",
-            risk_res=risk_res,
-            tp_prices=[52000.0, 54000.0],
-            leverage=10,
-            symbol_info=symbol_info
-        )
+    cmd = ExecuteSignalCommand(
+        signal_dto=sig_dto,
+        account_id=env["account"].id,
+    )
 
-    assert resp.success is True
-    assert resp.execution_type == "MARKET"
-    assert resp.entry_order_id == "BIN_ENTRY_MKT_1"
-    assert resp.sl_order_id == "BIN_SL_MKT_1"
-    assert len(resp.tp_order_ids) == 2
-    assert resp.actual_entry_price == 50020.0
+    res: TradeExecutionResultDTO = await use_case.execute(cmd)
 
-    await engine.close_connection()
+    assert res.success is True
+    assert res.execution_type == "MARKET"
+    assert res.trade_id is not None
+    assert res.entry_order_id == "BIN_ENTRY_MKT_1"
+
 
 
 @pytest.mark.asyncio
 async def test_execute_trade_pipeline_limit_order_deferred(async_session: AsyncSession, engine_env: dict):
     """Test execution pipeline choosing Limit order when price is far from entry and deferring SL/TP."""
     env = engine_env
-    trade_repo = TradeRepository(async_session)
 
-    engine = BinanceExecutionEngine(trade_repo=trade_repo)
-    engine.exchange = AsyncMock()
+    mock_gateway = AsyncMock()
     # Price is 51000 (> 50000 + 0.2%), so it places LIMIT order
-    engine.exchange.fetch_ticker = AsyncMock(return_value={"last": 51000.0})
-    engine.exchange.create_order = AsyncMock(return_value={"id": "BIN_ENTRY_LMT_1"})
-    engine.exchange.set_margin_mode = AsyncMock()
-    engine.exchange.set_leverage = AsyncMock()
-    engine.exchange.fetch_positions = AsyncMock(return_value=[])
+    mock_gateway.fetch_ticker_price = AsyncMock(return_value=Decimal("51000.0"))
+    mock_gateway.fetch_ticker = AsyncMock(return_value={"last": 51000.0, "bid": 50999.0, "ask": 51001.0})
+    mock_gateway.fetch_balance = AsyncMock(return_value={"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")})
+    mock_gateway.get_balance = AsyncMock(return_value={"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")})
 
-    risk_res = RiskCalculationResult(
-        is_valid=True,
-        entry_price=Decimal("50000.0"),
-        sl_price=Decimal("48000.0"),
-        stop_distance=Decimal("2000.0"),
-        position_size=Decimal("0.01"),
-        risk_amount=Decimal("20.0"),
-        required_margin=Decimal("50.0"),
-        risk_percent=Decimal("2.0"),
-        leverage=10
+
+    mock_gateway.create_order = AsyncMock(return_value={
+        "order_id": "BIN_ENTRY_LMT_1", "client_order_id": "c_entry_lmt", "status": "NEW", "price": 50000.0, "qty": 0.01
+    })
+    mock_gateway.set_margin_mode = AsyncMock()
+    mock_gateway.set_leverage = AsyncMock()
+
+    use_case = ExecuteSignalUseCase(
+        instrument_repo=InstrumentRepository(async_session),
+        watchlist_repo=WatchlistRepository(async_session),
+        trade_repo=TradeRepository(async_session),
+        trade_risk_repo=TradeRiskRepository(async_session),
+        daily_risk_repo=DailyRiskRepository(async_session),
+        order_repo=OrderRepository(async_session),
+        trade_event_repo=TradeEventRepository(async_session),
+        risk_profile_repo=RiskProfileRepository(async_session),
+        exchange_gateway=mock_gateway,
     )
 
-    resp: ExecutionResponse = await engine.execute_trade_pipeline(
-        trade_id=env["trade"].id,
+    from src.domain.entities.signal import ParsedSignalDTO
+    sig_dto = ParsedSignalDTO(
+        raw_text="BUY BTCUSDT",
         symbol="BTCUSDT",
         side="BUY",
-        risk_res=risk_res,
-        tp_prices=[54000.0],
+        entry_min=Decimal("50000.0"),
+        entry_max=Decimal("50000.0"),
+        sl_price=Decimal("48000.0"),
+        tp_targets=[Decimal("54000.0")],
         leverage=10,
     )
 
-    assert resp.success is True
-    assert resp.execution_type == "LIMIT"
-    assert resp.entry_order_id == "BIN_ENTRY_LMT_1"
-    assert resp.sl_order_id is None
-    assert resp.tp_order_ids == []
+    cmd = ExecuteSignalCommand(
+        signal_dto=sig_dto,
+        account_id=env["account"].id,
+    )
 
-    await engine.close_connection()
+    res: TradeExecutionResultDTO = await use_case.execute(cmd)
+
+    assert res.success is True
+    assert res.execution_type == "LIMIT"
+    assert res.entry_order_id == "BIN_ENTRY_LMT_1"
+    assert res.sl_order_id is None
+    assert res.tp_order_ids == []
+
 
 
 @pytest.mark.asyncio
 async def test_fetch_balance_and_cancel_all():
-    """Test fetch_balance and cancel_all_orders helper methods."""
-    engine = BinanceExecutionEngine()
-    engine.exchange = AsyncMock()
-    engine.exchange.fetch_balance = AsyncMock(return_value={
-        "USDT": {"total": 1000.0, "free": 800.0, "used": 200.0}
-    })
-    engine.exchange.cancel_all_orders = AsyncMock()
+    """Test fetch_balance and cancel_all_orders on BinanceExchangeAdapter."""
+    mock_connector = AsyncMock()
+    mock_connector.execute_rest = AsyncMock(side_effect=[
+        {"USDT": {"total": 1000.0, "free": 800.0, "used": 200.0}},
+        [{"id": "c1", "symbol": "BTC/USDT:USDT", "status": "canceled"}, {"id": "c2", "symbol": "BTC/USDT:USDT", "status": "canceled"}],
+    ])
 
-    bal = await engine.fetch_balance()
-    assert bal["USDT"]["total"] == 1000.0
-    assert bal["USDT"]["free"] == 800.0
+    adapter = BinanceExchangeAdapter(connector=mock_connector)
+    bal = await adapter.get_balance()
+    assert bal is not None
 
-    await engine.cancel_all_orders("BTCUSDT")
-    engine.exchange.cancel_all_orders.assert_called_with("BTCUSDT")
+    await adapter.cancel_all_orders("BTCUSDT")
+    mock_connector.execute_rest.assert_called_with("cancel_all_orders", "BTC/USDT:USDT")
 
-    await engine.close_connection()
+

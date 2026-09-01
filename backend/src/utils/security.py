@@ -1,9 +1,12 @@
 """Security and cryptography utilities: password hashing and JWT token processing."""
 
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
 import bcrypt
+from cryptography.fernet import Fernet, InvalidToken
 
 from config.settings import settings
 
@@ -61,3 +64,41 @@ def decode_token(token: str) -> Dict[str, Any]:
         algorithms=[settings.JWT_ALGORITHM],
     )
     return payload
+
+
+def _get_fernet_cipher() -> Fernet:
+    """Derive a deterministic 32-byte Fernet key from application secret key."""
+    raw_key = getattr(settings, "CREDENTIAL_ENCRYPTION_KEY", None) or settings.JWT_SECRET_KEY
+    key_bytes = hashlib.sha256(raw_key.encode("utf-8")).digest()
+    fernet_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plaintext: Optional[str]) -> Optional[str]:
+    """Encrypt a sensitive string (e.g. API key, Secret key) using symmetric Fernet encryption."""
+    if not plaintext:
+        return plaintext
+    # If already encrypted token, avoid double encrypting
+    if plaintext.startswith("gAAAAA"):
+        try:
+            _get_fernet_cipher().decrypt(plaintext.encode("utf-8"))
+            return plaintext
+        except Exception:
+            pass
+    cipher = _get_fernet_cipher()
+    encrypted_bytes = cipher.encrypt(plaintext.encode("utf-8"))
+    return encrypted_bytes.decode("utf-8")
+
+
+def decrypt_secret(ciphertext_or_plaintext: Optional[str]) -> Optional[str]:
+    """Decrypt a ciphertext secret. If ciphertext is plaintext or invalid token, fallback gracefully."""
+    if not ciphertext_or_plaintext:
+        return ciphertext_or_plaintext
+    try:
+        cipher = _get_fernet_cipher()
+        decrypted_bytes = cipher.decrypt(ciphertext_or_plaintext.encode("utf-8"))
+        return decrypted_bytes.decode("utf-8")
+    except (InvalidToken, Exception):
+        # Fallback to returning the raw value (e.g., legacy unencrypted string)
+        return ciphertext_or_plaintext
+

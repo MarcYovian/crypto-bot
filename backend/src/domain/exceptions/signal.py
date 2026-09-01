@@ -22,3 +22,8 @@ class SignalParseError(DomainError):
 class InvalidSignalDataError(SignalParseError):
     """Signal parameters violate logical trading rules (e.g. SL higher than Entry for BUY)."""
     pass
+
+
+class SignalNotFoundError(DomainError):
+    """Requested signal ID does not exist."""
+    pass

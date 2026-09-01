@@ -3,16 +3,16 @@
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, TradingCredential
-from src.schemas.master import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, TradingCredential
+from src.presentation.api.schemas.master import (
     ExchangeCreate,
     TradingAccountCreate,
     TradingCredentialCreate,
 )
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.trading_credential_repository import TradingCredentialRepository
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.trading_credential_repository import TradingCredentialRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

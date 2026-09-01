@@ -1,9 +1,8 @@
-"""Tests for complex Telegram signal formats, noisy promotional filtering, and price logic validation."""
-
 import pytest
 from decimal import Decimal
-from src.services.signal_parser import SignalParserService
+from src.domain.services.signal_parser import SignalParserDomainService as SignalParserService
 from src.domain.exceptions.signal import SignalParseError, InvalidSignalDataError
+
 
 
 @pytest.fixture
@@ -128,3 +127,53 @@ def test_parse_strict_mode_exceptions(parser: SignalParserService):
         SL: 52000
         TP1: 55000
         """, strict=True)
+
+
+def test_parse_signal_with_timeframe_and_pattern(parser: SignalParserService):
+    """Test parsing signal containing optional Timeframe, Pattern, and AI Note."""
+    raw = """
+    🤖 AI Agent Detect Chart Pattern
+
+    🚨 Symbol: WIFUSDT 🔴 LONG
+    ⏱ Timeframe: 1H
+    📈 Leverage: 75x
+    🔷 Pattern: Ranging Channel
+
+    💰 Entry: 0.20
+    🛡 SL: 0.1990 (-0.50%)
+    🎯 TP1: 0.21 (+5.00%)
+    ⚡️ TP2: 0.22 (+10.00%)
+    🔥 TP3: 0.23 (+15.00%)
+
+    🧠 Confidence Score (AI): 78%
+    📝 AI Note: Secara visual pattern Ranging Channel cukup valid.
+    """
+    res = parser.parse(raw)
+    assert res.is_valid is True
+    assert res.symbol == "WIFUSDT"
+    assert res.side == "BUY"
+    assert res.timeframe == "1H"
+    assert res.pattern == "Ranging Channel"
+    assert res.leverage == 75
+    assert res.confidence_score == 0.78
+    assert res.notes == "Secara visual pattern Ranging Channel cukup valid."
+    json_data = res.to_dict()
+    assert json_data["symbol"] == "WIFUSDT"
+    assert json_data["notes"] == "Secara visual pattern Ranging Channel cukup valid."
+    assert "raw_text" not in json_data
+    assert isinstance(res.to_json(), str)
+
+
+def test_parse_signal_without_timeframe_and_pattern(parser: SignalParserService):
+    """Test that signal without timeframe or pattern remains valid with None defaults."""
+    raw = """
+    #BTCUSDT BUY
+    Entry: 50000
+    SL: 48000
+    TP1: 55000
+    """
+    res = parser.parse(raw)
+    assert res.is_valid is True
+    assert res.timeframe is None
+    assert res.pattern is None
+

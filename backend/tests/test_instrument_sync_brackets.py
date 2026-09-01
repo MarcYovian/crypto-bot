@@ -6,14 +6,15 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, Instrument, Watchlist, InstrumentLeverageBracket
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
-from src.repository.watchlist_repository import WatchlistRepository
-from src.services.instrument_service import InstrumentService
-from src.clients.binance_client import BinanceRestClient
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, Instrument, Watchlist, InstrumentLeverageBracket
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.instrument_leverage_bracket_repository import InstrumentLeverageBracketRepository
+from src.infrastructure.persistence.repositories.watchlist_repository import WatchlistRepository
+from src.application.use_cases.instruments.sync_instruments_use_case import SyncInstrumentsUseCase as InstrumentService
+from src.domain.ports.gateways import IExchangeGateway
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -59,7 +60,7 @@ async def test_get_or_sync_instrument_existing(async_session: AsyncSession, inst
     bracket_repo = InstrumentLeverageBracketRepository(async_session)
     watch_repo = WatchlistRepository(async_session)
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_binance = AsyncMock(spec=IExchangeGateway)
     mock_binance.fetch_leverage_brackets = AsyncMock(return_value=[
         {
             "symbol": "BTCUSDT",
@@ -74,7 +75,7 @@ async def test_get_or_sync_instrument_existing(async_session: AsyncSession, inst
         exchange_repo=ExchangeRepository(async_session),
         watchlist_repo=watch_repo,
         bracket_repo=bracket_repo,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     inst = await service.get_or_sync_instrument("BTCUSDT")
@@ -100,7 +101,7 @@ async def test_get_or_sync_instrument_on_demand_new(async_session: AsyncSession,
     bracket_repo = InstrumentLeverageBracketRepository(async_session)
     watch_repo = WatchlistRepository(async_session)
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_binance = AsyncMock(spec=IExchangeGateway)
     mock_binance.fetch_instruments_metadata = AsyncMock(return_value=[
         {
             "symbol": "SOLUSDT",
@@ -128,7 +129,7 @@ async def test_get_or_sync_instrument_on_demand_new(async_session: AsyncSession,
         exchange_repo=ExchangeRepository(async_session),
         watchlist_repo=watch_repo,
         bracket_repo=bracket_repo,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     inst = await service.get_or_sync_instrument("SOLUSDT")
@@ -147,13 +148,13 @@ async def test_get_or_sync_instrument_on_demand_new(async_session: AsyncSession,
 async def test_get_or_sync_instrument_invalid_symbol(async_session: AsyncSession, inst_env: dict):
     """Test get_or_sync_instrument with an invalid/delisted pair."""
     inst_repo = InstrumentRepository(async_session)
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_binance = AsyncMock(spec=IExchangeGateway)
     mock_binance.fetch_instruments_metadata = AsyncMock(return_value=[])
 
     service = InstrumentService(
         instrument_repo=inst_repo,
         exchange_repo=ExchangeRepository(async_session),
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     inst = await service.get_or_sync_instrument("FAKECOINUSDT")
@@ -167,7 +168,7 @@ async def test_sync_all_instruments_bulk(async_session: AsyncSession, inst_env: 
     bracket_repo = InstrumentLeverageBracketRepository(async_session)
     watch_repo = WatchlistRepository(async_session)
 
-    mock_binance = AsyncMock(spec=BinanceRestClient)
+    mock_binance = AsyncMock(spec=IExchangeGateway)
     mock_binance.fetch_instruments_metadata = AsyncMock(return_value=[
         {
             "symbol": "ETHUSDT",
@@ -202,7 +203,7 @@ async def test_sync_all_instruments_bulk(async_session: AsyncSession, inst_env: 
         exchange_repo=ExchangeRepository(async_session),
         watchlist_repo=watch_repo,
         bracket_repo=bracket_repo,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     count = await service.sync_all_instruments()

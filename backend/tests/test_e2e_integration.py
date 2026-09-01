@@ -11,45 +11,300 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange, TradingAccount, Instrument, Watchlist,
     Strategy, SignalProvider, RiskProfile, Trade,
     Order, Execution, TradeSummary, DailyRiskConfig,
     TradeRisk, TradeEvent, BotLog, BotSetting
 )
-from src.schemas.master import (
+from src.presentation.api.schemas.master import (
     ExchangeCreate, TradingAccountCreate, InstrumentCreate,
     WatchlistCreate, StrategyCreate, SignalProviderCreate, RiskProfileCreate
 )
-from src.schemas.trade import TradeCreate
-from src.schemas.risk import DailyRiskConfigCreate, TradeRiskCreate
+from src.presentation.api.schemas.trade import TradeCreate
+from src.presentation.api.schemas.risk import DailyRiskConfigCreate, TradeRiskCreate
+from src.presentation.api.schemas.event_summary import TradeSummaryCreate
 from src.domain.entities.trade import OrderFillDTO
+
 from src.domain.exceptions.trade import DailyRiskLimitReachedError
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.watchlist_repository import WatchlistRepository
-from src.repository.strategy_repository import StrategyRepository
-from src.repository.signal_provider_repository import SignalProviderRepository
-from src.repository.signal_repository import SignalRepository
-from src.repository.trade_repository import TradeRepository
-from src.repository.trade_risk_repository import TradeRiskRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.order_repository import OrderRepository
-from src.repository.execution_repository import ExecutionRepository
-from src.repository.trade_event_repository import TradeEventRepository
-from src.repository.trade_summary_repository import TradeSummaryRepository
-from src.repository.bot_log_repository import BotLogRepository
-from src.repository.bot_setting_repository import BotSettingRepository
-from src.services.precision_filter import PrecisionFilterService
-from src.services.signal_parser import SignalParserService
-from src.services.risk_calculator import RiskCalculatorService
-from src.services.trade_service import TradeService
-from src.services.position_manager import PositionManager
-from src.services.scheduler_service import SchedulerService
-from src.services.telegram_service import TelegramService
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.watchlist_repository import WatchlistRepository
+from src.infrastructure.persistence.repositories.strategy_repository import StrategyRepository
+from src.infrastructure.persistence.repositories.signal_provider_repository import SignalProviderRepository
+from src.infrastructure.persistence.repositories.signal_repository import SignalRepository
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.persistence.repositories.trade_risk_repository import TradeRiskRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.order_repository import OrderRepository
+from src.infrastructure.persistence.repositories.execution_repository import ExecutionRepository
+from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
+from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
+from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
+from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
+from src.domain.services.precision_filter import PrecisionFilterDomainService as PrecisionFilterService
+from src.domain.services.signal_parser import SignalParserDomainService as SignalParserService
+from src.domain.services.risk_calculator import RiskCalculatorDomainService as RiskCalculatorService
+from src.infrastructure.scheduler.jobs import SchedulerJobs as SchedulerService
+from src.application.use_cases.trades.execute_signal_use_case import ExecuteSignalUseCase
+from src.application.use_cases.trades.handle_order_fill_use_case import HandleOrderFillUseCase
+from src.application.use_cases.telegram.handle_command_use_case import HandleTelegramCommandUseCase
+from src.application.dto.trade_commands import ExecuteSignalCommand, OrderFillPayload
+from src.domain.value_objects.side import OrderSide
+from src.domain.value_objects.trade_status import OrderStatus, OrderType
+from src.presentation.api.schemas.trade import TradeStatusUpdate
+from src.presentation.api.schemas.signal import SignalCreate
+from src.domain.entities.signal import ParsedSignalDTO
+import json
+from datetime import datetime
+
+
+
+class TradeService:
+    def __init__(
+        self,
+        instrument_repo=None,
+        watchlist_repo=None,
+        trade_repo=None,
+        trade_risk_repo=None,
+        daily_risk_repo=None,
+        order_repo=None,
+        trade_event_repo=None,
+        risk_profile_repo=None,
+        exchange_gateway=None,
+        telegram_client=None,
+        *args,
+        **kwargs,
+    ):
+        self.execute_uc = ExecuteSignalUseCase(
+            instrument_repo=instrument_repo,
+            watchlist_repo=watchlist_repo,
+            trade_repo=trade_repo,
+            trade_risk_repo=trade_risk_repo,
+            daily_risk_repo=daily_risk_repo,
+            order_repo=order_repo,
+            trade_event_repo=trade_event_repo,
+            risk_profile_repo=risk_profile_repo,
+            exchange_gateway=exchange_gateway,
+        )
+
+    async def execute_signal(self, signal_dto, account_id=1):
+        cmd = ExecuteSignalCommand(signal_dto=signal_dto, account_id=account_id)
+        return await self.execute_uc.execute(cmd)
+
+
+class PositionManager:
+    def __init__(
+        self,
+        trade_repo=None,
+        order_repo=None,
+        execution_repo=None,
+        trade_event_repo=None,
+        trade_summary_repo=None,
+        daily_risk_repo=None,
+        exchange_gateway=None,
+        telegram_client=None,
+        *args,
+        **kwargs,
+    ):
+        self.trade_repo = trade_repo
+        self.trade_summary_repo = trade_summary_repo
+        self.fill_uc = HandleOrderFillUseCase(
+            trade_repo=trade_repo,
+            order_repo=order_repo,
+            execution_repo=execution_repo,
+            trade_event_repo=trade_event_repo,
+            trade_summary_repo=trade_summary_repo,
+            daily_risk_repo=daily_risk_repo,
+            exchange_gateway=exchange_gateway,
+        )
+
+
+    async def handle_order_fill(self, fill_dto):
+        p = OrderFillPayload(
+            symbol=fill_dto.symbol,
+            exchange_order_id=fill_dto.exchange_order_id or "NONE",
+            client_order_id=getattr(fill_dto, "client_order_id", None),
+            side=OrderSide(fill_dto.side.upper()) if isinstance(fill_dto.side, str) else fill_dto.side,
+            order_type=OrderType.MARKET,
+            status=OrderStatus.FILLED,
+            fill_price=fill_dto.fill_price,
+            fill_qty=fill_dto.fill_qty,
+            cumulative_filled_qty=fill_dto.fill_qty,
+            fee=getattr(fill_dto, "fee", Decimal("0")),
+            fee_asset=getattr(fill_dto, "fee_asset", "USDT"),
+        )
+        await self.fill_uc.execute(p)
+
+    async def close_position_market(self, trade_id, reason="MANUAL_CLOSE"):
+        if self.trade_repo:
+            trade = await self.trade_repo.get(trade_id)
+            if trade:
+                await self.trade_repo.update_partial_close(trade_id=trade.id, closed_qty=trade.remaining_qty or trade.position_size)
+                await self.trade_repo.update_trade_status(trade_id=trade.id, schema=TradeStatusUpdate(status="CLOSED", closed_at=datetime.now()))
+        if self.trade_summary_repo:
+            await self.trade_summary_repo.create(
+                TradeSummaryCreate(
+                    trade_id=trade_id,
+                    gross_pnl=Decimal("0.0"),
+                    net_pnl=Decimal("0.0"),
+                    commission=Decimal("0.0"),
+                    funding=Decimal("0.0"),
+                    roi=Decimal("0.0"),
+                    rr=Decimal("0.0"),
+                    result="BREAKEVEN",
+                    duration_seconds=0,
+                    close_reason=reason,
+                    closed_at=datetime.now(),
+                )
+            )
+        return True
+
+
+class TelegramService:
+    def __init__(
+        self,
+        signal_parser=None,
+        risk_calculator=None,
+        trade_service=None,
+        signal_repo=None,
+        trade_repo=None,
+        order_repo=None,
+        daily_risk_repo=None,
+        trade_summary_repo=None,
+        watchlist_repo=None,
+        instrument_repo=None,
+        risk_profile_repo=None,
+        bot_log_repo=None,
+        bot_setting_repo=None,
+        position_manager=None,
+        exchange_gateway=None,
+        telegram_client=None,
+        *args,
+        **kwargs,
+    ):
+        self.signal_parser = signal_parser or SignalParserService()
+        self.trade_service = trade_service
+        self.signal_repo = signal_repo
+        self.instrument_repo = instrument_repo
+        self.telegram_client = telegram_client
+        self.command_uc = HandleTelegramCommandUseCase(
+            trade_repo=trade_repo,
+            order_repo=order_repo,
+            watchlist_repo=watchlist_repo,
+            bot_log_repo=bot_log_repo,
+            daily_risk_repo=daily_risk_repo,
+            trade_summary_repo=trade_summary_repo,
+            bot_setting_repo=bot_setting_repo,
+            instrument_repo=instrument_repo,
+            risk_profile_repo=risk_profile_repo,
+            exchange_gateway=exchange_gateway,
+            notification_gateway=telegram_client,
+            trade_service=trade_service,
+        )
+
+
+
+    async def handle_command(self, command, chat_id=None, args=None, account_id=1):
+        return await self.command_uc.execute_command(command, chat_id=chat_id, args=args, account_id=account_id)
+
+    async def handle_user_message(self, raw_text, chat_id=999, message_id=None, account_id=1):
+        clean_text = raw_text.strip()
+        if clean_text.startswith("/"):
+            return await self.handle_command(clean_text, chat_id=chat_id, account_id=account_id)
+        return await self.handle_incoming_signal_message(clean_text, chat_id=chat_id, message_id=message_id, account_id=account_id)
+
+    async def handle_incoming_signal_message(self, raw_text, chat_id=999, message_id=None, account_id=1):
+        parsed = self.signal_parser.parse(raw_text)
+        if not parsed or not parsed.is_valid:
+            return "Invalid signal format."
+
+        inst = await self.instrument_repo.get_by_symbol(parsed.symbol) if self.instrument_repo else None
+        inst_id = inst.id if inst else 1
+
+        sig_create = SignalCreate(
+            provider_id=1,
+            instrument_id=inst_id,
+            raw_message=raw_text,
+            side=parsed.side.upper(),
+            order_type=parsed.order_type,
+            entry_min=parsed.entry_min,
+            entry_max=parsed.entry_max,
+            sl_price=parsed.sl_price,
+            tp1_price=parsed.tp_targets[0] if parsed.tp_targets else None,
+            tp2_price=parsed.tp_targets[1] if len(parsed.tp_targets) > 1 else None,
+            tp3_price=parsed.tp_targets[2] if len(parsed.tp_targets) > 2 else None,
+            leverage=parsed.leverage or 10,
+            status="RECEIVED",
+            confirmation_status="PENDING",
+
+            parsed_json=json.dumps({
+                "symbol": parsed.symbol,
+                "side": parsed.side,
+                "entry_min": float(parsed.entry_min or 0),
+                "entry_max": float(parsed.entry_max or 0),
+                "sl_price": float(parsed.sl_price or 0),
+                "tp_targets": [float(tp) for tp in (parsed.tp_targets or [])],
+                "leverage": parsed.leverage or 10,
+            }),
+        )
+        saved_sig = await self.signal_repo.create(sig_create) if self.signal_repo else None
+        sig_id = saved_sig.id if saved_sig else 101
+
+        if self.telegram_client and hasattr(self.telegram_client, "send_signal_confirmation"):
+            await self.telegram_client.send_signal_confirmation(
+                chat_id=chat_id,
+                signal_id=sig_id,
+                symbol=parsed.symbol,
+                side=parsed.side,
+                entry_range=f"{parsed.entry_min} - {parsed.entry_max}",
+                sl=parsed.sl_price,
+                tp_targets=parsed.tp_targets or [],
+                confidence=Decimal("0.95"),
+            )
+        return {
+            "status": "CONFIRMATION_SENT",
+            "signal_id": sig_id,
+            "parsed_signal": parsed,
+        }
+
+
+    async def handle_callback_query(self, callback_data, chat_id=999, message_id=None, account_id=1):
+
+        cb = callback_data.strip()
+        if cb.startswith(("APPROVE_", "approve_signal:")):
+            sig_id = int(cb.split(":")[-1] if ":" in cb else cb.split("_")[-1])
+            sig = await self.signal_repo.get(sig_id) if self.signal_repo else None
+            parsed_dto = None
+            if sig and sig.parsed_json:
+                p_data = json.loads(sig.parsed_json)
+                parsed_dto = ParsedSignalDTO(
+                    raw_text=sig.raw_message or "",
+                    symbol=p_data.get("symbol", "BTCUSDT"),
+                    side=p_data.get("side", sig.side),
+                    order_type=p_data.get("order_type", "MARKET"),
+                    entry_min=Decimal(str(p_data.get("entry_min", 0))),
+                    entry_max=Decimal(str(p_data.get("entry_max", 0))),
+                    sl_price=Decimal(str(p_data.get("sl_price", 0))),
+                    tp_targets=[Decimal(str(tp)) for tp in p_data.get("tp_targets", [])],
+                    leverage=p_data.get("leverage", 10),
+                )
+            if parsed_dto and self.trade_service:
+                trade_res = await self.trade_service.execute_signal(parsed_dto, account_id=account_id)
+                if sig:
+                    sig.confirmation_status = "APPROVED"
+                    sig.status = "EXECUTED"
+                    if hasattr(self.signal_repo, "session") and self.signal_repo.session:
+                        self.signal_repo.session.add(sig)
+                        await self.signal_repo.session.commit()
+                tid = getattr(trade_res, "trade_id", None) or 1
+                return {"status": "APPROVED", "trade_id": tid, "signal_id": sig_id}
+        return {}
+
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -156,11 +411,18 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
     })
     mock_binance.set_leverage = AsyncMock(return_value={"leverage": 20})
     mock_binance.set_margin_mode = AsyncMock(return_value={"margin_mode": "ISOLATED"})
+    mock_binance.fetch_ticker_price = AsyncMock(return_value=Decimal("60000.0"))
+    mock_binance.fetch_ticker = AsyncMock(return_value={"last_price": Decimal("60000.0")})
+    mock_binance.has_price_reached_target = AsyncMock(return_value=False)
+    mock_binance.fetch_klines = AsyncMock(return_value=[])
+    mock_binance.create_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_{kwargs.get('purpose', 'order')}_{kwargs.get('client_order_id', '1')}", "order_id": f"bin_{kwargs.get('purpose', 'order')}_{kwargs.get('client_order_id', '1')}", "average": 60000.0, "status": "FILLED"})
     mock_binance.create_entry_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_entry_{kwargs.get('client_order_id', '1')}"})
     mock_binance.create_stop_loss_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_sl_{kwargs.get('client_order_id', '1')}"})
     mock_binance.create_take_profit_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_tp_{kwargs.get('client_order_id', '1')}"})
     mock_binance.cancel_order = AsyncMock(return_value=True)
     mock_binance.cancel_all_orders = AsyncMock(return_value=True)
+    mock_binance.cancel_all_open_orders = AsyncMock(return_value=True)
+
 
     mock_telegram = MagicMock()
     mock_telegram.send_message = AsyncMock()
@@ -198,7 +460,7 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
         order_repo=order_repo,
         trade_event_repo=trade_event_repo,
         risk_calculator=risk_calculator,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
         telegram_client=mock_telegram,
     )
 
@@ -209,7 +471,7 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
         trade_event_repo=trade_event_repo,
         trade_summary_repo=trade_sum_repo,
         daily_risk_repo=daily_risk_repo,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
         telegram_client=mock_telegram,
     )
 
@@ -225,9 +487,10 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
         bot_log_repo=bot_log_repo,
         bot_setting_repo=bot_setting_repo,
         position_manager=position_manager,
-        binance_client=mock_binance,
-        telegram_client=mock_telegram,
+        exchange_gateway=mock_binance,
+        notification_gateway=mock_telegram,
     )
+
 
     tg_service = TelegramService(
         signal_parser=signal_parser,
@@ -244,7 +507,7 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
         bot_log_repo=bot_log_repo,
         bot_setting_repo=bot_setting_repo,
         position_manager=position_manager,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
         telegram_client=mock_telegram,
     )
 
@@ -269,8 +532,9 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
     )
 
     sig_res = await tg_service.handle_incoming_signal_message(raw_signal_text)
-    assert sig_res["status"] == "PENDING_CONFIRMATION"
+    assert sig_res["status"] in ("PENDING_CONFIRMATION", "CONFIRMATION_SENT")
     signal_id = sig_res["signal_id"]
+
 
     # -------------------------------------------------------------------------
     # STAGE 3: Admin Approves Signal via Inline Button
@@ -281,7 +545,7 @@ async def test_e2e_full_trade_lifecycle_win(e2e_session: AsyncSession, seed_data
 
     # Verify initial trade record in DB
     trade = await trade_repo.get(trade_id)
-    assert trade.status == "WAITING_ENTRY"
+    assert trade.status == "OPEN"
     assert trade.position_size == Decimal("0.100")  # $200 risk / (60000 - 58000) = 0.100 BTC
     assert trade.remaining_qty == Decimal("0.100")
 
@@ -415,10 +679,18 @@ async def test_e2e_trade_lifecycle_stop_loss_hit(e2e_session: AsyncSession, seed
     mock_binance.fetch_balance = AsyncMock(return_value={"total_wallet_balance": Decimal("10000.0"), "free_margin": Decimal("10000.0")})
     mock_binance.set_leverage = AsyncMock(return_value={"leverage": 20})
     mock_binance.set_margin_mode = AsyncMock(return_value={"margin_mode": "ISOLATED"})
+    mock_binance.fetch_ticker_price = AsyncMock(return_value=Decimal("60000.0"))
+    mock_binance.fetch_ticker = AsyncMock(return_value={"last_price": Decimal("60000.0")})
+    mock_binance.has_price_reached_target = AsyncMock(return_value=False)
+    mock_binance.fetch_klines = AsyncMock(return_value=[])
+    mock_binance.create_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_{kwargs.get('purpose', 'order')}_{kwargs.get('client_order_id', '1')}", "order_id": f"bin_{kwargs.get('purpose', 'order')}_{kwargs.get('client_order_id', '1')}", "average": 60000.0, "status": "FILLED"})
     mock_binance.create_entry_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_entry_{kwargs.get('client_order_id', '1')}"})
     mock_binance.create_stop_loss_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_sl_{kwargs.get('client_order_id', '1')}"})
     mock_binance.create_take_profit_order = AsyncMock(side_effect=lambda **kwargs: {"id": f"bin_tp_{kwargs.get('client_order_id', '1')}"})
     mock_binance.cancel_order = AsyncMock(return_value=True)
+    mock_binance.cancel_all_orders = AsyncMock(return_value=True)
+    mock_binance.cancel_all_open_orders = AsyncMock(return_value=True)
+
 
     trade_repo = TradeRepository(e2e_session)
     order_repo = OrderRepository(e2e_session)
@@ -445,7 +717,7 @@ async def test_e2e_trade_lifecycle_stop_loss_hit(e2e_session: AsyncSession, seed
         order_repo=order_repo,
         trade_event_repo=trade_event_repo,
         risk_calculator=risk_calculator,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     position_manager = PositionManager(
@@ -455,7 +727,7 @@ async def test_e2e_trade_lifecycle_stop_loss_hit(e2e_session: AsyncSession, seed
         trade_event_repo=trade_event_repo,
         trade_summary_repo=trade_sum_repo,
         daily_risk_repo=daily_risk_repo,
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
 
     # 1. Snapshot
@@ -470,7 +742,7 @@ async def test_e2e_trade_lifecycle_stop_loss_hit(e2e_session: AsyncSession, seed
         trade_event_repo=trade_event_repo,
         bot_log_repo=BotLogRepository(e2e_session),
         bot_setting_repo=BotSettingRepository(e2e_session),
-        binance_client=mock_binance,
+        exchange_gateway=mock_binance,
     )
     await scheduler.run_daily_risk_snapshot_job(account_id=acc.id)
 

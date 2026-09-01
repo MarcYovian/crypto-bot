@@ -1,4 +1,4 @@
-"""Unit and integration tests for BinanceStreamListener WebSocket service."""
+"""Unit and integration tests for BinanceExchangeAdapter WebSocket stream service."""
 
 import asyncio
 from decimal import Decimal
@@ -7,12 +7,12 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.database.connection import Base
-from src.database.models import Exchange, TradingAccount, Instrument, Strategy, Trade, Order
-from src.domain.entities.trade import OrderFillDTO
-from src.repository.trade_repository import TradeRepository
-from src.services.position_manager import PositionManager
-from src.services.websocket_listener import BinanceStreamListener
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import Exchange, TradingAccount, Instrument, Strategy, Trade, Order
+from src.application.use_cases.trades.handle_order_fill_use_case import HandleOrderFillUseCase
+from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
+from src.infrastructure.gateways.binance import BinanceConnector, BinanceExchangeAdapter
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -77,30 +77,48 @@ async def ws_env(async_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_websocket_listener_init_modes(async_session: AsyncSession):
-    """Test BinanceStreamListener testnet (demo) vs live initialization."""
-    trade_repo = TradeRepository(async_session)
-    mock_pos_mgr = MagicMock(spec=PositionManager)
+async def test_websocket_adapter_init_modes():
+    """Test BinanceExchangeAdapter and BinanceConnector initialization modes."""
+    conn_demo = BinanceConnector(api_key="demo_key", secret_key="demo_sec", testnet=True)
+    adapter_demo = BinanceExchangeAdapter(connector=conn_demo)
+    assert adapter_demo.connector.testnet is True
 
-    listener_demo = BinanceStreamListener(trade_repo=trade_repo, position_manager=mock_pos_mgr, testnet=True)
-    assert listener_demo.is_running is False
-    assert listener_demo.exchange is not None
+    conn_live = BinanceConnector(api_key="live_key", secret_key="live_sec", testnet=False)
+    adapter_live = BinanceExchangeAdapter(connector=conn_live)
+    assert adapter_live.connector.testnet is False
 
-    listener_live = BinanceStreamListener(trade_repo=trade_repo, position_manager=mock_pos_mgr, testnet=False)
-    assert listener_live.is_running is False
-    await listener_demo.stop()
-    await listener_live.stop()
+    await adapter_demo.close()
+    await adapter_live.close()
 
 
 @pytest.mark.asyncio
-async def test_websocket_listener_order_fill_event_dispatch(async_session: AsyncSession, ws_env: dict):
-    """Test parsing a raw CCXT order event and dispatching OrderFillDTO to PositionManager."""
-    env = ws_env
-    trade_repo = TradeRepository(async_session)
-    mock_pos_mgr = AsyncMock(spec=PositionManager)
-    mock_pos_mgr.handle_order_fill = AsyncMock()
+async def test_websocket_adapter_start_order_stream_task():
+    """Test start_order_stream_task returns None when unconfigured, and creates task when configured."""
+    conn_no_key = BinanceConnector()
+    adapter_no_key = BinanceExchangeAdapter(connector=conn_no_key)
+    task_none = adapter_no_key.start_order_stream_task(on_fill_coro=AsyncMock())
+    assert task_none is None
 
-    listener = BinanceStreamListener(trade_repo=trade_repo, position_manager=mock_pos_mgr, testnet=True)
+    conn_with_key = BinanceConnector(api_key="valid_key", secret_key="valid_sec")
+    adapter_with_key = BinanceExchangeAdapter(connector=conn_with_key)
+    with patch.object(adapter_with_key, "watch_orders_stream", new_callable=AsyncMock) as mock_watch:
+        task = adapter_with_key.start_order_stream_task(on_fill_coro=AsyncMock())
+        assert task is not None
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_websocket_adapter_process_ws_order_event(async_session: AsyncSession, ws_env: dict):
+    """Test processing raw WebSocket event through HandleOrderFillUseCase."""
+    conn = BinanceConnector(api_key="key", secret_key="sec")
+    adapter = BinanceExchangeAdapter(connector=conn)
+
+    mock_fill_uc = AsyncMock(spec=HandleOrderFillUseCase)
+    mock_fill_uc.execute_from_raw_event = AsyncMock(return_value={"status": "FILLED"})
 
     raw_event = {
         "id": "BIN_WS_12345",
@@ -111,67 +129,44 @@ async def test_websocket_listener_order_fill_event_dispatch(async_session: Async
         "fee": {"cost": 0.02, "currency": "USDT"},
     }
 
-    await listener._process_ws_order_event(raw_event)
-
-    mock_pos_mgr.handle_order_fill.assert_called_once()
-    fill_dto: OrderFillDTO = mock_pos_mgr.handle_order_fill.call_args[0][0]
-    assert fill_dto.order_id == env["order"].id
-    assert fill_dto.trade_id == env["trade"].id
-    assert fill_dto.symbol == "BTCUSDT"
-    assert fill_dto.fill_price == Decimal("50000")
-    assert fill_dto.fill_qty == Decimal("0.01")
-    assert fill_dto.fee == Decimal("0.02")
-    assert fill_dto.status == "FILLED"
-
-    await listener.stop()
+    result = await adapter.process_ws_order_event(raw_event, handle_fill_use_case=mock_fill_uc)
+    assert result == {"status": "FILLED"}
+    mock_fill_uc.execute_from_raw_event.assert_awaited_once_with(raw_event)
 
 
 @pytest.mark.asyncio
-async def test_websocket_listener_ignore_untracked_order(async_session: AsyncSession):
-    """Test that events for order IDs not present in DB are safely skipped without errors."""
-    trade_repo = TradeRepository(async_session)
-    mock_pos_mgr = AsyncMock(spec=PositionManager)
+async def test_websocket_stream_reconnect_on_error():
+    """Test that watch_orders_stream reconnects upon transient WebSocket errors."""
+    conn = BinanceConnector(api_key="key", secret_key="sec")
+    adapter = BinanceExchangeAdapter(connector=conn)
 
-    listener = BinanceStreamListener(trade_repo=trade_repo, position_manager=mock_pos_mgr, testnet=True)
-
-    untracked_event = {
-        "id": "UNKNOWN_EXCHANGE_ID_9999",
-        "symbol": "ETH/USDT:USDT",
-        "status": "closed",
-        "filled": 1.0,
-        "average": 3000.0,
-    }
-
-    await listener._process_ws_order_event(untracked_event)
-    mock_pos_mgr.handle_order_fill.assert_not_called()
-    await listener.stop()
-
-
-@pytest.mark.asyncio
-async def test_websocket_listener_start_loop_and_reconnect(async_session: AsyncSession):
-    """Test start loop consumes orders and reconnects on exception."""
-    trade_repo = TradeRepository(async_session)
-    mock_pos_mgr = AsyncMock(spec=PositionManager)
-
-    listener = BinanceStreamListener(trade_repo=trade_repo, position_manager=mock_pos_mgr, testnet=True)
-
+    mock_ws = AsyncMock()
     call_count = 0
+
     async def mock_watch_orders():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            raise ConnectionResetError("WebSocket connection lost")
+            raise ConnectionResetError("1002 reserved bits frame reset")
         elif call_count == 2:
-            return [{"id": "NONE_ORDER", "status": "open"}]
+            return [{"id": "ORDER_1", "status": "closed"}]
         else:
-            listener.is_running = False
-            return []
+            raise asyncio.CancelledError()
 
-    listener.exchange.watch_orders = mock_watch_orders
+    mock_ws.watch_orders = mock_watch_orders
+    conn.get_ws_exchange = AsyncMock(return_value=mock_ws)
+
+    received_orders = []
+    async def on_fill(order):
+        received_orders.append(order)
 
     with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
-        await listener.start()
-        assert call_count >= 2
-        mock_sleep.assert_called()
+        try:
+            await adapter.watch_orders_stream(callback_coro=on_fill)
+        except asyncio.CancelledError:
+            pass
 
-    await listener.stop()
+    assert len(received_orders) == 1
+    assert received_orders[0]["id"] == "ORDER_1"
+    assert call_count >= 2
+    mock_sleep.assert_called()

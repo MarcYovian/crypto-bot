@@ -4,9 +4,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.database.connection import Base
-from src.database.models.users import User
-from src.repository.user_repository import UserRepository
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models.users import User
+from src.infrastructure.persistence.repositories.user_repository import UserRepository
 from src.utils.security import get_password_hash, verify_password
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

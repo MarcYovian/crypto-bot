@@ -6,8 +6,10 @@
 !*.example
 
 # === Data & Log Directories (Docker Mounts) ===
-data/
-logs/
+/data/
+/logs/
+/backend/logs/
+/backend/data/
 
 # === Virtual Environment ===
 .venv/

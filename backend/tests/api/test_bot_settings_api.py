@@ -9,8 +9,8 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
 
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     TradingCredential,
@@ -20,12 +20,14 @@ from src.database.models import (
     Order,
     BotSetting,
 )
-from src.repository.user_repository import UserRepository
-from src.clients.binance_client import BinanceRestClient
+from src.infrastructure.persistence.repositories.user_repository import UserRepository
+from src.infrastructure.gateways.binance import BinanceExchangeAdapter
 from src.utils.security import get_password_hash
+
+
 from src.utils.cache import in_memory_cache
-from src.api.app import create_app
-from src.api.deps import get_db_session
+from src.presentation.api.app import create_app
+from src.presentation.api.deps import get_db_session
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -171,8 +173,9 @@ async def test_get_bot_status_success(app_and_client):
     assert data["is_paused"] is False
     assert data["trading_status"] == "ACTIVE"
     assert data["binance_ws_connected"] is True
-    assert data["scheduler_jobs_count"] == 7
+    assert data["scheduler_jobs_count"] == 8
     assert "last_heartbeat" in data
+
 
 
 @pytest.mark.asyncio
@@ -361,8 +364,9 @@ async def test_credentials_handshake_success(app_and_client):
         "unrealized_pnl": Decimal("0.0"),
     }
 
-    with patch.object(BinanceRestClient, "fetch_balance", new_callable=AsyncMock) as mock_get_acc:
+    with patch.object(BinanceExchangeAdapter, "get_balance", new_callable=AsyncMock) as mock_get_acc:
         mock_get_acc.return_value = mock_info
+
 
         res = await client.post(
             "/api/v1/settings/credentials",
@@ -424,8 +428,9 @@ async def test_credentials_handshake_failed(app_and_client):
     client, _ = app_and_client
     token = await get_admin_token(client)
 
-    with patch.object(BinanceRestClient, "fetch_balance", new_callable=AsyncMock) as mock_get_acc:
+    with patch.object(BinanceExchangeAdapter, "get_balance", new_callable=AsyncMock) as mock_get_acc:
         mock_get_acc.side_effect = Exception("API-key format invalid or IP not whitelisted")
+
 
         res = await client.post(
             "/api/v1/settings/credentials",

@@ -4,15 +4,15 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.schemas.master import (
+from src.infrastructure.persistence.connection import Base
+from src.presentation.api.schemas.master import (
     ExchangeCreate,
     InstrumentCreate,
     InstrumentLeverageBracketCreate,
 )
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.instrument_leverage_bracket_repository import (
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.instrument_leverage_bracket_repository import (
     InstrumentLeverageBracketRepository,
 )
 

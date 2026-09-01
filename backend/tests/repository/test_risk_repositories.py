@@ -5,8 +5,8 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from src.database.connection import Base
-from src.database.models import (
+from src.infrastructure.persistence.connection import Base
+from src.infrastructure.persistence.models import (
     Exchange,
     TradingAccount,
     RiskProfile,
@@ -15,19 +15,19 @@ from src.database.models import (
     Trade,
     TradeRisk,
 )
-from src.schemas.master import (
+from src.presentation.api.schemas.master import (
     ExchangeCreate,
     TradingAccountCreate,
     RiskProfileCreate,
     InstrumentCreate,
 )
-from src.schemas.risk import DailyRiskConfigCreate, TradeRiskCreate
-from src.repository.exchange_repository import ExchangeRepository
-from src.repository.trading_account_repository import TradingAccountRepository
-from src.repository.risk_profile_repository import RiskProfileRepository
-from src.repository.instrument_repository import InstrumentRepository
-from src.repository.daily_risk_repository import DailyRiskRepository
-from src.repository.trade_risk_repository import TradeRiskRepository
+from src.presentation.api.schemas.risk import DailyRiskConfigCreate, TradeRiskCreate
+from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
+from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
+from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
+from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
+from src.infrastructure.persistence.repositories.trade_risk_repository import TradeRiskRepository
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
