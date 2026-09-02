@@ -44,6 +44,28 @@ class ApproveSignalUseCase:
         sym = signal.instrument.symbol if signal.instrument else "BTCUSDT"
         tps = [tp for tp in [signal.tp1_price, signal.tp2_price, signal.tp3_price] if tp is not None]
 
+        # Resolve leverage: priority -> custom_leverage -> parsed_json -> raw_message re-parse -> model attribute -> default 10
+        resolved_leverage = cmd.custom_leverage
+        if not resolved_leverage and getattr(signal, "parsed_json", None):
+            try:
+                import json
+                pdata = json.loads(signal.parsed_json)
+                resolved_leverage = pdata.get("leverage")
+            except Exception:
+                pass
+
+        if not resolved_leverage and getattr(signal, "raw_message", None):
+            try:
+                from src.domain.services.signal_parser import SignalParserDomainService
+                parser = SignalParserDomainService()
+                reparsed = parser.parse(signal.raw_message)
+                if reparsed and reparsed.leverage:
+                    resolved_leverage = reparsed.leverage
+            except Exception:
+                pass
+
+        final_leverage = resolved_leverage or getattr(signal, "leverage", None) or 10
+
         sig_dto = ParsedSignalDTO(
             symbol=sym,
             side=signal.side.upper(),
@@ -51,7 +73,7 @@ class ApproveSignalUseCase:
             entry_max=signal.entry_max or Decimal("0"),
             sl_price=signal.sl_price or Decimal("0"),
             tp_targets=tps,
-            leverage=cmd.custom_leverage or getattr(signal, "leverage", None) or 10,
+            leverage=final_leverage,
             is_valid=True,
             raw_text=signal.raw_message or "",
         )
