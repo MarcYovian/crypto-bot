@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 import ccxt.async_support as ccxt
@@ -14,6 +15,11 @@ from src.domain.exceptions import (
     InsufficientMarginError,
     OrderRejectError,
     RateLimitError,
+)
+from src.utils.rest_cache_logger import (
+    write_rest_request_cache,
+    write_rest_response_cache,
+    extract_symbol_from_args,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,7 +176,22 @@ class BinanceConnector:
             return ExchangeError(f"Unexpected exchange error: {exc}")
 
     async def execute_rest(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
-        """Execute a raw CCXT REST call with automatic domain exception translation."""
+        """Execute a raw CCXT REST call with automatic domain exception translation and REST audit caching."""
+        timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        symbol = extract_symbol_from_args(args, kwargs)
+
+        # 1. Record REST Request Cache
+        try:
+            await write_rest_request_cache(
+                method_name=method_name,
+                args=args,
+                kwargs=kwargs,
+                timestamp_str=timestamp_str,
+                symbol=symbol,
+            )
+        except Exception:
+            pass
+
         exchange = await self.get_rest_exchange()
 
         # Handle specific methods that may map to Binance-specific private endpoints
@@ -181,9 +202,40 @@ class BinanceConnector:
         if not func:
             raise AttributeError(f"CCXT BinanceUSDM has no method '{method_name}'")
 
+        start_t = asyncio.get_event_loop().time()
         try:
-            return await func(*args, **kwargs)
+            res = await func(*args, **kwargs)
+            duration_ms = (asyncio.get_event_loop().time() - start_t) * 1000
+
+            # 2. Record REST Response Cache
+            try:
+                await write_rest_response_cache(
+                    method_name=method_name,
+                    response_data=res,
+                    timestamp_str=timestamp_str,
+                    symbol=symbol,
+                    duration_ms=round(duration_ms, 2),
+                )
+            except Exception:
+                pass
+
+            return res
         except Exception as exc:
+            duration_ms = (asyncio.get_event_loop().time() - start_t) * 1000
+
+            # Record REST Error Response Cache
+            try:
+                await write_rest_response_cache(
+                    method_name=method_name,
+                    response_data=None,
+                    timestamp_str=timestamp_str,
+                    symbol=symbol,
+                    duration_ms=round(duration_ms, 2),
+                    error=str(exc),
+                )
+            except Exception:
+                pass
+
             raise self._translate_exception(exc, method_name) from exc
 
     async def fetch_instruments_metadata(self) -> List[Dict[str, Any]]:

@@ -26,7 +26,7 @@ DEFAULT_BASE_PATH = getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/w
 def _path_name_parser(data: str) -> str:
     """Sanitize path name to avoid invalid characters."""
     regex = re.compile(r"[^a-zA-Z0-9_\-]")
-    return regex.sub("", str(data))
+    return regex.sub("", data)
 
 
 def _default_json_serializer(obj: Any) -> Any:

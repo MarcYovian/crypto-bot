@@ -524,7 +524,10 @@ class ExecuteSignalUseCase:
                 exchange_entry_id = str(entry_resp.get("exchange_order_id") or entry_resp.get("order_id") or entry_resp.get("id") or f"SIM_{trade.id}")
 
                 if execution_mode == "MARKET":
-                    avg_val = entry_resp.get("average") or entry_resp.get("price")
+                    avg_val = entry_resp.get("avg_price") or entry_resp.get("average") or entry_resp.get("price")
+                    if not avg_val and "raw" in entry_resp and isinstance(entry_resp["raw"], dict):
+                        raw_info = entry_resp["raw"].get("info", {})
+                        avg_val = raw_info.get("avgPrice") or raw_info.get("price")
                     if avg_val is not None and Decimal(str(avg_val)) > Decimal("0"):
                         actual_entry_price = Decimal(str(avg_val))
             except InsufficientMarginError as exc:

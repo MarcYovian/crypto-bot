@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     WS_CACHE_LOG_PATH: str = "/var/log/cryptobot/wsbinance/"
+    BINANCE_REST_LOG_PATH: str = "/var/log/cryptobot/binance_rest/"
 
     # CORS Origins (list of allowed origins or comma-separated string)
     CORS_ORIGINS: List[str] = [
