@@ -226,6 +226,10 @@ class TelegramBotController:
                 return err_text
             except Exception as exc:
                 logger.error("Error approving signal via callback: %s", exc)
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
                 err_text = f"❌ <b>GAGAL MENYETUJUI SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
                 if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
                     try:
@@ -267,6 +271,10 @@ class TelegramBotController:
                 return "❌ Signal rejected."
             except Exception as exc:
                 logger.error("Error rejecting signal via callback: %s", exc)
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
                 err_text = f"❌ <b>GAGAL MENOLAK SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
                 if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
                     try:

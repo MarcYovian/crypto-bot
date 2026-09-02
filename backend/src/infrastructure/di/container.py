@@ -313,6 +313,7 @@ class ApplicationContainer:
             trade_event_repo=self.get_trade_event_repo(session),
             risk_profile_repo=self.get_risk_profile_repo(session),
             bracket_repo=self.get_bracket_repo(session),
+            strategy_repo=self.get_strategy_repo(session),
             exchange_gateway=self.exchange_gateway,
             event_publisher=self.event_publisher,
             place_bracket_orders_use_case=self.get_place_bracket_orders_use_case(session),
