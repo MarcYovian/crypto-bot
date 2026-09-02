@@ -56,6 +56,10 @@ def _sync_atomic_write_cache(target_dir: str, filename: str, payload_str: str) -
             f.write(payload_str)
 
         os.rename(temp_path, target_path)
+        try:
+            os.chmod(target_path, 0o666)
+        except Exception:
+            pass
         return target_path
     except Exception as e:
         logger.warning(f"Failed atomic writing WebSocket cache to {target_dir}/{filename}: {e}")
