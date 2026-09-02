@@ -38,7 +38,7 @@ class ParseSignalUseCase:
         # 1. Parse raw text
         parsed_dto = self.parser.parse(cmd.raw_text)
         if not parsed_dto.is_valid:
-            logger.warning("Signal parsing failed: %s", parsed_dto.error_message)
+            logger.debug("Signal parsing skipped/invalid: %s", parsed_dto.error_message)
             return parsed_dto
 
         clean_symbol = Symbol.normalize(parsed_dto.symbol)

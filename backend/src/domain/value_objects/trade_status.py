@@ -121,7 +121,9 @@ class OrderType(str, Enum):
     def from_str(cls, value: Union[str, "OrderType"]) -> "OrderType":
         if isinstance(value, OrderType):
             return value
-        cleaned = str(value).strip().upper()
+        cleaned = str(value or "").strip().upper()
+        if cleaned in ("", "NONE", "NULL"):
+            return cls.MARKET
         # Standardize aliases
         if cleaned in ("STOP", "STOP_LOSS", "STOP_MARKET"):
             return cls.STOP_MARKET
