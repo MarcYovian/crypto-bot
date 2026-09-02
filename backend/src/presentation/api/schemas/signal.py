@@ -77,7 +77,7 @@ class TradingSignalBase(BaseSchema):
 
 class TradingSignalCreate(TradingSignalBase):
     """Payload for saving a new TradingSignal to the database."""
-    raw_text: Optional[str] = None
+    pass
 
 
 SignalCreate = TradingSignalCreate

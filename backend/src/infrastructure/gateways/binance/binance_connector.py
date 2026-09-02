@@ -160,7 +160,10 @@ class BinanceConnector:
             logger.error("Binance Order Reject in %s: %s", operation, exc)
             return OrderRejectError(f"Binance rejected operation: {exc}")
         elif isinstance(exc, ccxt.ExchangeError):
-            logger.error("Binance Exchange Error in %s: %s", operation, exc)
+            if "No need to change" in str(exc) or "-4046" in str(exc) or "-4059" in str(exc):
+                logger.debug("Binance Notice in %s: %s", operation, exc)
+            else:
+                logger.error("Binance Exchange Error in %s: %s", operation, exc)
             return OrderRejectError(f"Binance rejected operation: {exc}")
         else:
             logger.exception("Unexpected error in Binance connector (%s): %s", operation, exc)

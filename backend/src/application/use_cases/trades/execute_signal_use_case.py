@@ -475,6 +475,7 @@ class ExecuteSignalUseCase:
                 account_id=cmd.account_id,
                 instrument_id=instrument.id,
                 strategy_id=strat_id,
+                signal_id=cmd.signal_id,
                 side=sig.side.upper(),
                 status=initial_status,
                 entry_price=effective_entry_for_calc,

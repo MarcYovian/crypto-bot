@@ -83,6 +83,11 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         else:
             data = schema.copy()
 
+        # Prevent synonym collision when both raw_message and raw_text are in data
+        if "raw_message" in data and "raw_text" in data:
+            data["raw_message"] = data["raw_message"] or data["raw_text"]
+            data.pop("raw_text", None)
+
         db_obj = self.model(**data)
         self.session.add(db_obj)
         await self.session.commit()
