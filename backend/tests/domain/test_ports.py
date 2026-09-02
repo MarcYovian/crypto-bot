@@ -131,6 +131,7 @@ def test_concrete_mock_notification_gateway_satisfies_contract():
         async def send_price_runaway_alert(self, chat_id=None, **kwargs): return {}
         async def send_daily_summary_alert(self, chat_id=None, **kwargs): return {}
         async def edit_message_text(self, chat_id, message_id, text, parse_mode="HTML", reply_markup=None): return {}
+        async def delete_message(self, chat_id, message_id): return {}
         async def answer_callback_query(self, callback_query_id, text=None, show_alert=False): return {}
         async def set_my_commands(self, commands=None): return {}
         async def close(self): pass
