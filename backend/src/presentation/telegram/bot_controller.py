@@ -298,7 +298,7 @@ class TelegramBotController:
             return None
 
         async def on_tg_message(msg: dict) -> None:
-            text = msg.get("text", "")
+            text = msg.get("text") or msg.get("caption") or ""
             chat_id = msg.get("chat", {}).get("id", 1)
             message_id = msg.get("message_id")
             if not text:
