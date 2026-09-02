@@ -425,6 +425,12 @@ class ApplicationContainer:
             bot_log_repo=self.get_bot_log_repo(session),
             daily_risk_repo=self.get_daily_risk_repo(session),
             trade_summary_repo=self.get_trade_summary_repo(session),
+            bot_setting_repo=self.get_bot_setting_repo(session),
+            trading_account_repo=self.get_trading_account_repo(session),
+            trading_credential_repo=self.get_trading_credential_repo(session),
+            instrument_repo=self.get_instrument_repo(session),
+            risk_profile_repo=self.get_risk_profile_repo(session),
+            close_trade_use_case=self.get_close_trade_use_case(session),
             exchange_gateway=self.exchange_gateway,
             notification_gateway=self.notification_gateway,
         )

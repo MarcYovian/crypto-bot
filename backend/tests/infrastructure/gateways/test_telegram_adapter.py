@@ -270,6 +270,32 @@ async def test_telegram_domain_exceptions_mapping():
     await connector.close()
 
 
+@pytest.mark.asyncio
+async def test_telegram_delete_message(telegram_gateway):
+    """Test deleteMessage API call parameter structure."""
+    adapter, connector, _ = telegram_gateway
+
+    mock_response = httpx.Response(
+        status_code=200,
+        json={"ok": True, "result": True},
+        request=httpx.Request("POST", "https://api.telegram.org/bot123456:TEST_TOKEN/deleteMessage"),
+    )
+
+    client = await connector.get_client()
+    with patch.object(client, "post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_response
+
+        res = await adapter.delete_message(chat_id="12345678", message_id=888)
+
+        assert res["ok"] is True
+        mock_post.assert_called_once()
+        payload = mock_post.call_args[1]["json"]
+        assert payload["chat_id"] == "12345678"
+        assert payload["message_id"] == 888
+
+    await connector.close()
+
+
 def test_format_crypto_price_smart_trimming():
     """Test format_crypto_price eliminates redundant trailing zeroes while maintaining clarity."""
     assert TelegramFormatter.format_crypto_price(Decimal("0.2000000"), precision=7) == "0.20"

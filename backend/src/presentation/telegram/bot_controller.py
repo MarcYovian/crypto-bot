@@ -52,6 +52,7 @@ class TelegramBotController:
                 text=clean_text,
                 message_id=message_id,
                 account_id=account_id,
+                notification_gateway=self.notification_gateway,
             )
 
         # 2. Setup Account Wizard command initiation
@@ -67,6 +68,7 @@ class TelegramBotController:
                     )
                 except Exception as exc:
                     logger.debug("Could not send Telegram message via gateway: %s", exc)
+                return None
             return wizard_resp.get("text")
 
         # 3. Handle Other Slash Commands

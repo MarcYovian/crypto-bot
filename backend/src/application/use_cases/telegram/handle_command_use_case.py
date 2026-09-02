@@ -167,14 +167,22 @@ class HandleTelegramCommandUseCase:
 
         if self.trading_credential_repo:
             cred = await self.trading_credential_repo.get_active_credential(account_id)
+            if not cred:
+                cred = await self.trading_credential_repo.get_by_account_id(account_id)
             if cred:
                 raw_k = getattr(cred, "encrypted_api_key", "")
-                masked_key = f"{raw_k[:4]}****{raw_k[-4:]}" if len(raw_k) >= 8 else (raw_k or "Tersimpan di DB")
+                if raw_k:
+                    from src.utils.security import decrypt_secret
+                    decrypted_k = decrypt_secret(raw_k) or raw_k
+                    masked_key = f"{decrypted_k[:4]}****{decrypted_k[-4:]}" if len(decrypted_k) >= 8 else (decrypted_k or "Tersimpan di DB")
 
         if self.trading_account_repo:
             acc = await self.trading_account_repo.get(account_id)
-            if acc and getattr(acc, "is_testnet", None) is not None:
-                env = "TESTNET" if acc.is_testnet else "MAINNET"
+            if acc:
+                if getattr(acc, "environment", None):
+                    env = str(acc.environment).upper()
+                elif getattr(acc, "is_testnet", None) is not None:
+                    env = "TESTNET" if acc.is_testnet else "MAINNET"
 
         bal_text = "N/A"
         if self.exchange_gateway:

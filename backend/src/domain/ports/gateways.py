@@ -416,6 +416,15 @@ class INotificationGateway(ABC):
         ...
 
     @abstractmethod
+    async def delete_message(
+        self,
+        chat_id: Union[int, str],
+        message_id: int,
+    ) -> Any:
+        """Delete a specific message from chat."""
+        ...
+
+    @abstractmethod
     async def answer_callback_query(
         self,
         callback_query_id: str,

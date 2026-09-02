@@ -506,6 +506,18 @@ class TelegramNotificationAdapter(INotificationGateway):
 
         return await self.connector.execute_api("editMessageText", payload)
 
+    async def delete_message(
+        self,
+        chat_id: Union[int, str],
+        message_id: int,
+    ) -> Dict[str, Any]:
+        """Delete a specific message from Telegram chat."""
+        payload: Dict[str, Any] = {
+            "chat_id": str(chat_id),
+            "message_id": message_id,
+        }
+        return await self.connector.execute_api("deleteMessage", payload)
+
     async def answer_callback_query(
         self,
         callback_query_id: str,

@@ -51,9 +51,11 @@ class TelegramWizardManager:
         self,
         session: AsyncSession,
         save_credentials_use_case: Optional[SaveCredentialsUseCase] = None,
+        notification_gateway: Optional[Any] = None,
     ) -> None:
         self.session = session
         self._save_credentials_use_case = save_credentials_use_case
+        self.notification_gateway = notification_gateway or getattr(container, "notification_gateway", None)
 
     @property
     def save_credentials_use_case(self) -> SaveCredentialsUseCase:
@@ -122,6 +124,7 @@ class TelegramWizardManager:
         message_id: Optional[int] = None,
         account_id: Optional[int] = None,
         telegram_client: Optional[Any] = None,
+        notification_gateway: Optional[Any] = None,
     ) -> Optional[str]:
         """Handle conversational text message during active wizard state."""
         state = wizard_states.get(chat_id)
@@ -134,11 +137,19 @@ class TelegramWizardManager:
             return "❌ Setup akun dibatalkan."
 
         step = state.get("step")
+        del_client = telegram_client or notification_gateway or self.notification_gateway or getattr(container, "notification_gateway", None)
 
         # Step 1: Received API Key
         if step == "AWAITING_API_KEY":
             wizard_states[chat_id]["api_key"] = clean_text
             wizard_states[chat_id]["step"] = "AWAITING_API_SECRET"
+
+            if del_client and message_id and hasattr(del_client, "delete_message"):
+                try:
+                    await del_client.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception:
+                    pass
+
             return (
                 "✅ <b>API Key Diterima!</b> (API Key diterima)\n\n"
                 "Sekarang kirimkan <b>Binance SECRET Key</b> Anda:\n"
@@ -153,9 +164,9 @@ class TelegramWizardManager:
 
             wizard_states.pop(chat_id, None)
 
-            if telegram_client and message_id and hasattr(telegram_client, "delete_message"):
+            if del_client and message_id and hasattr(del_client, "delete_message"):
                 try:
-                    await telegram_client.delete_message(chat_id=chat_id, message_id=message_id)
+                    await del_client.delete_message(chat_id=chat_id, message_id=message_id)
                 except Exception:
                     pass
 
