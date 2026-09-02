@@ -39,6 +39,7 @@ from src.domain.ports.repositories import (
     IInstrumentRepository,
     IOrderRepository,
     IRiskProfileRepository,
+    IStrategyRepository,
     ITradeEventRepository,
     ITradeRepository,
     ITradeRiskRepository,
@@ -69,6 +70,7 @@ class ExecuteSignalUseCase:
         trade_event_repo: ITradeEventRepository,
         risk_profile_repo: IRiskProfileRepository,
         bracket_repo: Optional[IInstrumentLeverageBracketRepository] = None,
+        strategy_repo: Optional[IStrategyRepository] = None,
         exchange_gateway: Optional[IExchangeGateway] = None,
         event_publisher: Optional[IDomainEventPublisher] = None,
         risk_calculator: Optional[RiskCalculatorDomainService] = None,
@@ -84,6 +86,7 @@ class ExecuteSignalUseCase:
         self.trade_event_repo = trade_event_repo
         self.risk_profile_repo = risk_profile_repo
         self.bracket_repo = bracket_repo
+        self.strategy_repo = strategy_repo
         self.exchange_gateway = exchange_gateway
         self.event_publisher = event_publisher
         self.risk_calc = risk_calculator or RiskCalculatorDomainService()
@@ -449,12 +452,30 @@ class ExecuteSignalUseCase:
 
         initial_status = "OPEN" if execution_mode == "MARKET" else "WAITING_ENTRY"
 
-        strat_id = cmd.strategy_id or 1
+        # Resolve strategy_id safely without breaking FK constraints
+        strat_id: Optional[int] = cmd.strategy_id
+        if self.strategy_repo:
+            if strat_id is not None:
+                strat = await self.strategy_repo.get(strat_id)
+                if not strat:
+                    strat_id = None
+            if strat_id is None:
+                active_strats = await self.strategy_repo.get_active_strategies()
+                if active_strats:
+                    strat_id = active_strats[0].id
+                else:
+                    all_strats = await self.strategy_repo.get_all_strategies()
+                    if all_strats:
+                        strat_id = all_strats[0].id
+                    else:
+                        strat_id = None
+
         trade = await self.trade_repo.create(
             TradeCreate(
                 account_id=cmd.account_id,
                 instrument_id=instrument.id,
                 strategy_id=strat_id,
+                signal_id=cmd.signal_id,
                 side=sig.side.upper(),
                 status=initial_status,
                 entry_price=effective_entry_for_calc,
@@ -503,7 +524,10 @@ class ExecuteSignalUseCase:
                 exchange_entry_id = str(entry_resp.get("exchange_order_id") or entry_resp.get("order_id") or entry_resp.get("id") or f"SIM_{trade.id}")
 
                 if execution_mode == "MARKET":
-                    avg_val = entry_resp.get("average") or entry_resp.get("price")
+                    avg_val = entry_resp.get("avg_price") or entry_resp.get("average") or entry_resp.get("price")
+                    if not avg_val and "raw" in entry_resp and isinstance(entry_resp["raw"], dict):
+                        raw_info = entry_resp["raw"].get("info", {})
+                        avg_val = raw_info.get("avgPrice") or raw_info.get("price")
                     if avg_val is not None and Decimal(str(avg_val)) > Decimal("0"):
                         actual_entry_price = Decimal(str(avg_val))
             except InsufficientMarginError as exc:

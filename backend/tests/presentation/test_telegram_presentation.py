@@ -67,10 +67,51 @@ async def test_telegram_bot_controller_start_polling_task():
          patch("src.infrastructure.di.container.container.telegram_connector.start_polling", new_callable=AsyncMock) as mock_poll:
         task = TelegramBotController.start_polling_task()
         assert task is not None
+        assert mock_poll.called
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
+
+
+@pytest.mark.asyncio
+async def test_telegram_bot_controller_image_caption_processing():
+    """Verify that photo/media messages with caption are properly extracted and processed."""
+    from unittest.mock import patch, AsyncMock
+    from src.infrastructure.di.container import container
+
+    captured_coros = {}
+
+    async def fake_start_polling(on_message_coro=None, on_callback_query_coro=None):
+        captured_coros["on_message"] = on_message_coro
+        captured_coros["on_callback"] = on_callback_query_coro
+
+    with patch.object(container.telegram_connector, "bot_token", "test_mock_token_123"), \
+         patch.object(container.telegram_connector, "start_polling", side_effect=fake_start_polling), \
+         patch.object(TelegramBotController, "handle_user_message", new_callable=AsyncMock) as mock_handle:
+        
+        mock_handle.return_value = "Sinyal Diterima"
+        task = TelegramBotController.start_polling_task()
+        await task
+
+        on_msg = captured_coros.get("on_message")
+        assert on_msg is not None
+
+        # Simulate photo message with caption
+        photo_msg = {
+            "message_id": 1001,
+            "chat": {"id": 123456},
+            "photo": [{"file_id": "xyz"}],
+            "caption": "BTCUSDT BUY Entry 65000 SL 63000 TP 68000",
+        }
+        await on_msg(photo_msg)
+
+        mock_handle.assert_called_once_with(
+            raw_text="BTCUSDT BUY Entry 65000 SL 63000 TP 68000",
+            chat_id=123456,
+            message_id=1001,
+        )
+
 
 

@@ -226,6 +226,10 @@ class TelegramBotController:
                 return err_text
             except Exception as exc:
                 logger.error("Error approving signal via callback: %s", exc)
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
                 err_text = f"❌ <b>GAGAL MENYETUJUI SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
                 if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
                     try:
@@ -267,6 +271,10 @@ class TelegramBotController:
                 return "❌ Signal rejected."
             except Exception as exc:
                 logger.error("Error rejecting signal via callback: %s", exc)
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
                 err_text = f"❌ <b>GAGAL MENOLAK SINYAL</b>\n\n⚠️ <b>Alasan:</b> {exc}"
                 if chat_id and message_id and self.notification_gateway and hasattr(self.notification_gateway, "edit_message_text"):
                     try:
@@ -290,7 +298,7 @@ class TelegramBotController:
             return None
 
         async def on_tg_message(msg: dict) -> None:
-            text = msg.get("text", "")
+            text = msg.get("text") or msg.get("caption") or ""
             chat_id = msg.get("chat", {}).get("id", 1)
             message_id = msg.get("message_id")
             if not text:

@@ -11,6 +11,7 @@ from config.settings import settings
 from src.infrastructure.persistence.connection import init_db
 from src.infrastructure.di.container import container
 from src.infrastructure.scheduler import SchedulerService
+from src.presentation.api.schemas.master import StrategyCreate
 from src.presentation.telegram.bot_controller import TelegramBotController
 from src.utils.security import get_password_hash, decrypt_secret
 
@@ -62,6 +63,23 @@ async def initialize_system_defaults() -> None:
                     active_acc.name,
                     active_acc.environment,
                 )
+
+        # 3. Ensure default Strategy exists
+        strat_repo = container.get_strategy_repo(session)
+        strategies = await strat_repo.get_all_strategies()
+        if not strategies:
+            await strat_repo.create(
+                StrategyCreate(
+                    name="Default 3-Tier Strategy",
+                    description="Default 3-Tier Multi-TP Strategy (TP1: 50% BEP, TP2: 30%, TP3: 20% Runner)",
+                    is_active=True,
+                )
+            )
+            logger.info("Created default trading strategy: 'Default 3-Tier Strategy'")
+
+        # 4. Ensure default Risk Profile exists
+        risk_repo = container.get_risk_profile_repo(session)
+        await risk_repo.get_or_create_default_profile()
 
 
 async def start_background_runners() -> None:

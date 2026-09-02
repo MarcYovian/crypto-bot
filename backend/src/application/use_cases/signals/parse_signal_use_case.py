@@ -38,7 +38,7 @@ class ParseSignalUseCase:
         # 1. Parse raw text
         parsed_dto = self.parser.parse(cmd.raw_text)
         if not parsed_dto.is_valid:
-            logger.warning("Signal parsing failed: %s", parsed_dto.error_message)
+            logger.debug("Signal parsing skipped/invalid: %s", parsed_dto.error_message)
             return parsed_dto
 
         clean_symbol = Symbol.normalize(parsed_dto.symbol)
@@ -48,6 +48,8 @@ class ParseSignalUseCase:
         tp1 = parsed_dto.tp_targets[0] if len(parsed_dto.tp_targets) > 0 else None
         tp2 = parsed_dto.tp_targets[1] if len(parsed_dto.tp_targets) > 1 else None
         tp3 = parsed_dto.tp_targets[2] if len(parsed_dto.tp_targets) > 2 else None
+
+        parsed_json_str = parsed_dto.model_dump_json() if hasattr(parsed_dto, "model_dump_json") else None
 
         signal_record = await self.signal_repo.create(
             TradingSignalCreate(
@@ -60,7 +62,10 @@ class ParseSignalUseCase:
                 tp1_price=tp1,
                 tp2_price=tp2,
                 tp3_price=tp3,
+                timeframe=parsed_dto.timeframe,
+                confidence=Decimal(str(parsed_dto.confidence_score)) if parsed_dto.confidence_score is not None else None,
                 raw_message=cmd.raw_text,
+                parsed_json=parsed_json_str,
                 status="RECEIVED",
             )
         )

@@ -1,5 +1,6 @@
 """Use case for approving a signal and triggering order execution."""
 
+import json
 import logging
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -11,6 +12,7 @@ from src.domain.events.signal_events import SignalApprovedEvent
 from src.domain.exceptions import SignalNotFoundError
 from src.domain.ports.event_publisher import IDomainEventPublisher
 from src.domain.ports.repositories import ISignalRepository
+from src.domain.services.signal_parser import SignalParserDomainService
 from src.domain.value_objects.side import OrderSide
 from src.domain.entities.signal import ParsedSignalDTO
 from src.presentation.api.schemas import TradingSignalUpdate
@@ -26,10 +28,12 @@ class ApproveSignalUseCase:
         signal_repo: ISignalRepository,
         execute_signal_use_case: ExecuteSignalUseCase,
         event_publisher: Optional[IDomainEventPublisher] = None,
+        parser: Optional[SignalParserDomainService] = None,
     ) -> None:
         self.signal_repo = signal_repo
         self.execute_signal_uc = execute_signal_use_case
         self.event_publisher = event_publisher
+        self.parser = parser or SignalParserDomainService()
 
     async def execute(self, cmd: ApproveSignalCommand) -> TradeExecutionResultDTO:
         """Approve signal and immediately execute trade."""
@@ -44,6 +48,25 @@ class ApproveSignalUseCase:
         sym = signal.instrument.symbol if signal.instrument else "BTCUSDT"
         tps = [tp for tp in [signal.tp1_price, signal.tp2_price, signal.tp3_price] if tp is not None]
 
+        # Resolve leverage: priority -> custom_leverage -> parsed_json -> raw_message re-parse -> model attribute -> default 10
+        resolved_leverage = cmd.custom_leverage
+        if not resolved_leverage and getattr(signal, "parsed_json", None):
+            try:
+                pdata = json.loads(signal.parsed_json)
+                resolved_leverage = pdata.get("leverage")
+            except Exception:
+                pass
+
+        if not resolved_leverage and getattr(signal, "raw_message", None):
+            try:
+                reparsed = self.parser.parse(signal.raw_message)
+                if reparsed and reparsed.leverage:
+                    resolved_leverage = reparsed.leverage
+            except Exception:
+                pass
+
+        final_leverage = resolved_leverage or getattr(signal, "leverage", None) or 10
+
         sig_dto = ParsedSignalDTO(
             symbol=sym,
             side=signal.side.upper(),
@@ -51,7 +74,7 @@ class ApproveSignalUseCase:
             entry_max=signal.entry_max or Decimal("0"),
             sl_price=signal.sl_price or Decimal("0"),
             tp_targets=tps,
-            leverage=cmd.custom_leverage or getattr(signal, "leverage", None) or 10,
+            leverage=final_leverage,
             is_valid=True,
             raw_text=signal.raw_message or "",
         )

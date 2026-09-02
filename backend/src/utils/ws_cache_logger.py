@@ -26,7 +26,7 @@ DEFAULT_BASE_PATH = getattr(settings, "WS_CACHE_LOG_PATH", "/var/log/cryptobot/w
 def _path_name_parser(data: str) -> str:
     """Sanitize path name to avoid invalid characters."""
     regex = re.compile(r"[^a-zA-Z0-9_\-]")
-    return regex.sub("", str(data))
+    return regex.sub("", data)
 
 
 def _default_json_serializer(obj: Any) -> Any:
@@ -56,6 +56,10 @@ def _sync_atomic_write_cache(target_dir: str, filename: str, payload_str: str) -
             f.write(payload_str)
 
         os.rename(temp_path, target_path)
+        try:
+            os.chmod(target_path, 0o666)
+        except Exception:
+            pass
         return target_path
     except Exception as e:
         logger.warning(f"Failed atomic writing WebSocket cache to {target_dir}/{filename}: {e}")

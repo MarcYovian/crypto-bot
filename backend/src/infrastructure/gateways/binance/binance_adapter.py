@@ -1,5 +1,6 @@
 """Binance Exchange Gateway Adapter implementing IExchangeGateway."""
 
+import asyncio
 import logging
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
@@ -328,7 +329,13 @@ class BinanceExchangeAdapter(IExchangeGateway):
         ccxt_sym = self.parser.to_ccxt_symbol(clean_sym)
         raw_list = await self.connector.execute_rest("cancel_all_orders", ccxt_sym)
         if isinstance(raw_list, list):
-            return [self.parser.parse_order(o) for o in raw_list]
+            results = []
+            for o in raw_list:
+                try:
+                    results.append(self.parser.parse_order(o))
+                except Exception:
+                    results.append({"status": "CANCELED", "raw": o})
+            return results
         return [{"status": "ALL_CANCELLED", "symbol": clean_sym, "raw": raw_list}]
 
     async def cancel_all_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
@@ -467,7 +474,6 @@ class BinanceExchangeAdapter(IExchangeGateway):
         """Start the background order stream task if API key is configured."""
         if not self.connector.api_key:
             return None
-        import asyncio
         return asyncio.create_task(self.watch_orders_stream(callback_coro=on_fill_coro))
 
     async def process_ws_order_event(

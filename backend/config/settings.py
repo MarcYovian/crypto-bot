@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     WS_CACHE_LOG_PATH: str = "/var/log/cryptobot/wsbinance/"
+    BINANCE_REST_LOG_PATH: str = "/var/log/cryptobot/binance_rest/"
 
     # CORS Origins (list of allowed origins or comma-separated string)
     CORS_ORIGINS: List[str] = [
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
     # Risk & Pre-Trade Margin Management
     AUTO_MARGIN_CAPPING: bool = True
     MARGIN_SAFETY_BUFFER: float = 0.95
+    LIQUIDATION_SAFETY_BUFFER: float = 1.25
 
     # JWT Authentication & Admin Defaults
     JWT_SECRET_KEY: str = "dev-secret-jwt-key-replace-in-production-0987654321"

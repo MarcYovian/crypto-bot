@@ -86,3 +86,54 @@ async def test_approve_signal_not_found():
     cmd = ApproveSignalCommand(signal_id=999, account_id=1)
     with pytest.raises(SignalNotFoundError):
         await use_case.execute(cmd)
+
+
+@pytest.mark.asyncio
+async def test_approve_signal_extracts_leverage_from_raw_message_or_json():
+    """Verify that ApproveSignalUseCase accurately retrieves leverage from raw_message / parsed_json."""
+    signal_repo = MagicMock(spec=ISignalRepository)
+    execute_signal_uc = MagicMock(spec=ExecuteSignalUseCase)
+
+    mock_signal = MagicMock(
+        id=20,
+        side="BUY",
+        entry_min=Decimal("0.56"),
+        entry_max=Decimal("0.57"),
+        sl_price=Decimal("0.53"),
+        tp1_price=Decimal("0.59"),
+        tp2_price=Decimal("0.62"),
+        tp3_price=Decimal("0.65"),
+        parsed_json='{"leverage": 75}',
+        raw_message="APTUSDT BUY Entry: 0.56324 SL: 0.5387 Leverage: 75x",
+        instrument=MagicMock(symbol="APTUSDT"),
+    )
+    # Simulate DB model without a leverage column attribute
+    del mock_signal.leverage
+
+    signal_repo.get = AsyncMock(return_value=mock_signal)
+    signal_repo.update = AsyncMock()
+    execute_signal_uc.execute = AsyncMock(
+        return_value=TradeExecutionResultDTO(
+            trade_id=102,
+            symbol="APTUSDT",
+            side="BUY",
+            status="OPEN",
+            position_size=Decimal("100"),
+            entry_price=Decimal("0.563"),
+            is_success=True,
+            message="Trade executed",
+        )
+    )
+
+    use_case = ApproveSignalUseCase(
+        signal_repo=signal_repo,
+        execute_signal_use_case=execute_signal_uc,
+    )
+
+    cmd = ApproveSignalCommand(signal_id=20, account_id=1)
+    res = await use_case.execute(cmd)
+
+    assert res.is_success is True
+    # Verify execute_signal_uc was called with sig_dto having leverage=75
+    exec_cmd = execute_signal_uc.execute.call_args[0][0]
+    assert exec_cmd.signal_dto.leverage == 75

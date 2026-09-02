@@ -78,8 +78,12 @@ class BinanceParser:
         else:
             ord_status = OrderStatus.NEW
 
-        side_raw = str(raw.get("side", "BUY")).upper()
-        type_raw = str(raw.get("type", "LIMIT")).upper()
+        side_raw = str(raw.get("side", "BUY") or "BUY").upper()
+        type_raw = str(raw.get("type", "LIMIT") or "LIMIT").upper()
+        try:
+            ord_type = OrderType.from_str(type_raw)
+        except Exception:
+            ord_type = OrderType.MARKET
 
         fee_info = raw.get("fee") or {}
         fee_cost = Decimal(str(fee_info.get("cost", "0"))) if fee_info else Decimal("0")
@@ -90,7 +94,7 @@ class BinanceParser:
             "client_order_id": str(raw.get("clientOrderId", "")),
             "symbol": cls.from_ccxt_symbol(raw.get("symbol", "")),
             "side": OrderSide.from_str(side_raw),
-            "order_type": OrderType.from_str(type_raw),
+            "order_type": ord_type,
             "status": ord_status,
             "price": Decimal(str(raw.get("price") or "0")) if raw.get("price") else None,
             "qty": Decimal(str(raw.get("amount") or "0")),

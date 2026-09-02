@@ -203,3 +203,49 @@ async def test_execute_signal_circuit_breaker_active(mock_deps):
 
     with pytest.raises(DailyRiskLimitReachedError):
         await use_case.execute(ExecuteSignalCommand(signal_dto=sig_dto))
+
+
+@pytest.mark.asyncio
+async def test_execute_signal_without_strategy_resolves_safely(mock_deps):
+    """Verify that if no strategy exists, trade is created with strategy_id=None without FK error."""
+    mock_inst = MagicMock(id=1, symbol="BTCUSDT", tick_size=Decimal("0.1"), price_precision=2, step_size=Decimal("0.001"), qty_precision=3, min_notional=Decimal("5.0"))
+    mock_deps["instrument_repo"].get_by_symbol.return_value = mock_inst
+    mock_deps["watchlist_repo"].is_symbol_enabled.return_value = True
+    mock_deps["trade_repo"].get_active_trade_by_instrument.return_value = None
+    mock_deps["trade_repo"].get_all_active_trades.return_value = []
+    mock_deps["risk_profile_repo"].get_or_create_default_profile.return_value = MagicMock(max_open_trade=3, risk_percent=Decimal("2.0"))
+    mock_deps["exchange_gateway"].fetch_balance.return_value = {"free_margin": Decimal("10000.0"), "total_wallet_balance": Decimal("10000.0")}
+    mock_deps["daily_risk_repo"].get_by_date.return_value = MagicMock(id=1, balance=Decimal("10000.0"))
+    mock_deps["daily_risk_repo"].get_remaining_risk_budget.return_value = Decimal("200.0")
+    mock_deps["exchange_gateway"].fetch_ticker.return_value = {"symbol": "BTCUSDT", "last_price": Decimal("65000.0")}
+    mock_deps["exchange_gateway"].create_order.return_value = {"exchange_order_id": "999", "average": Decimal("65000.0")}
+
+    # Mock strategy repo returning no strategies
+    mock_strat_repo = MagicMock()
+    mock_strat_repo.get = AsyncMock(return_value=None)
+    mock_strat_repo.get_active_strategies = AsyncMock(return_value=[])
+    mock_strat_repo.get_all_strategies = AsyncMock(return_value=[])
+    mock_deps["strategy_repo"] = mock_strat_repo
+
+    mock_trade = MagicMock(id=101, status="OPEN", side="BUY", remaining_qty=Decimal("0.1"))
+    mock_deps["trade_repo"].create.return_value = mock_trade
+    mock_deps["trade_repo"].update_entry_fill.return_value = mock_trade
+
+    use_case = ExecuteSignalUseCase(**mock_deps)
+
+    sig_dto = ParsedSignalDTO(
+        raw_text="BTCUSDT BUY",
+        symbol="BTCUSDT",
+        side="BUY",
+        entry_min=Decimal("65000.0"),
+        sl_price=Decimal("63000.0"),
+        tp_targets=[Decimal("67000.0")],
+        is_valid=True,
+    )
+
+    result = await use_case.execute(ExecuteSignalCommand(signal_dto=sig_dto, strategy_id=None))
+    assert result.is_success is True
+
+    # Assert TradeCreate had strategy_id=None (not hardcoded 1)
+    call_args = mock_deps["trade_repo"].create.call_args[0][0]
+    assert call_args.strategy_id is None
