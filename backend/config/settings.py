@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # Risk & Pre-Trade Margin Management
     AUTO_MARGIN_CAPPING: bool = True
     MARGIN_SAFETY_BUFFER: float = 0.95
+    LIQUIDATION_SAFETY_BUFFER: float = 1.25
 
     # JWT Authentication & Admin Defaults
     JWT_SECRET_KEY: str = "dev-secret-jwt-key-replace-in-production-0987654321"

@@ -4,6 +4,8 @@ import math
 from decimal import Decimal
 from typing import List, Optional, Tuple, Union, Sequence, Any
 
+from config.settings import settings
+
 
 from src.domain.entities.risk import (
     RiskCalculationResultDTO,
@@ -323,7 +325,10 @@ class RiskCalculatorDomainService:
                     maint_margin_ratio = Decimal(str(b_mmr))
 
         stop_pct = stop_distance / ep
-        max_safe_lev_float = 1.0 / float(stop_pct + maint_margin_ratio)
+        # Apply liquidation safety buffer (default 1.25x / 25% safety distance beyond Stop Loss)
+        liq_safety_buf = Decimal(str(getattr(settings, "LIQUIDATION_SAFETY_BUFFER", 1.25)))
+        buffered_stop_pct = stop_pct * liq_safety_buf
+        max_safe_lev_float = 1.0 / float(buffered_stop_pct + maint_margin_ratio)
         max_safe_lev = max(1, min(int(math.floor(max_safe_lev_float)), max_lev_val))
 
         if maximize_leverage:
