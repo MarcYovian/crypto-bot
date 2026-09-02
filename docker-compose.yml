@@ -38,8 +38,7 @@ services:
       - ${ENV_FILE:-./backend/.env}
     volumes:
       - ./backend:/app
-      - ./logs/wsbinance:/var/log/cryptobot/wsbinance
-      - ./logs/binance_rest:/var/log/cryptobot/binance_rest
+      - ./logs:/var/log/cryptobot
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

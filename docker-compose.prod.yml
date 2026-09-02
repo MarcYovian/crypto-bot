@@ -39,6 +39,8 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     env_file:
       - ./backend/.env
+    volumes:
+      - ./logs:/var/log/cryptobot
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
