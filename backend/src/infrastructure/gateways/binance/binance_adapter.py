@@ -1,5 +1,6 @@
 """Binance Exchange Gateway Adapter implementing IExchangeGateway."""
 
+import asyncio
 import logging
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
@@ -467,7 +468,6 @@ class BinanceExchangeAdapter(IExchangeGateway):
         """Start the background order stream task if API key is configured."""
         if not self.connector.api_key:
             return None
-        import asyncio
         return asyncio.create_task(self.watch_orders_stream(callback_coro=on_fill_coro))
 
     async def process_ws_order_event(

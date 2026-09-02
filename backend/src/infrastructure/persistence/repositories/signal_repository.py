@@ -172,8 +172,6 @@ class SignalRepository(BaseRepository[TradingSignal, TradingSignalCreate, Tradin
         Returns:
             Tuple of (total_count, list of TradingSignal models with eager-loaded instrument & provider).
         """
-        from sqlalchemy.orm import selectinload
-
         stmt = (
             select(TradingSignal)
             .options(

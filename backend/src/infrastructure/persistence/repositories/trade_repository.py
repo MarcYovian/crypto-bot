@@ -1,12 +1,12 @@
 """Data-access repository for Trade / Position lifecycle and state machine."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, List, Union, Any
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.infrastructure.persistence.models import Trade, Order, TradeEvent
+from src.infrastructure.persistence.models import Trade, Order, TradeEvent, Instrument, TradeSummary
 from src.presentation.api.schemas.trade import TradeCreate, TradeUpdate, TradeStatusUpdate
 from src.infrastructure.persistence.repositories.base import BaseRepository
 from src.domain.ports.repositories import ITradeRepository
@@ -183,7 +183,6 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate], ITradeRep
         Returns:
             List of expired WAITING_ENTRY Trade instances.
         """
-        from datetime import timezone
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=max_hours)
         stmt = (
             select(Trade)
@@ -473,9 +472,6 @@ class TradeRepository(BaseRepository[Trade, TradeCreate, TradeUpdate], ITradeRep
         Returns:
             Tuple of (total_matching_count, list_of_trade_entities).
         """
-        from src.infrastructure.persistence.models.instruments import Instrument
-        from src.infrastructure.persistence.models.trade_summaries import TradeSummary
-
         stmt = (
             select(Trade)
             .options(

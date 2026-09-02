@@ -1,5 +1,6 @@
 """Domain exceptions for risk calculations and position sizing constraints."""
 
+from decimal import Decimal
 from typing import Optional, Dict, Any
 from src.domain.exceptions.base import DomainError
 
@@ -53,7 +54,6 @@ class InsufficientMarginRiskError(RiskCalculationError):
             det["shortfall"] = str(shortfall)
         elif required_margin is not None and available_margin is not None:
             try:
-                from decimal import Decimal
                 det["shortfall"] = str(max(Decimal("0"), Decimal(str(required_margin)) - Decimal(str(available_margin))))
             except Exception:
                 pass

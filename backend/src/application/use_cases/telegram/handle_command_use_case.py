@@ -25,6 +25,7 @@ from src.domain.ports.repositories import (
     IWatchlistRepository,
 )
 from src.presentation.api.schemas.risk import DailyRiskConfigCreate
+from src.utils.security import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,6 @@ class HandleTelegramCommandUseCase:
             if cred:
                 raw_k = getattr(cred, "encrypted_api_key", "")
                 if raw_k:
-                    from src.utils.security import decrypt_secret
                     decrypted_k = decrypt_secret(raw_k) or raw_k
                     masked_key = f"{decrypted_k[:4]}****{decrypted_k[-4:]}" if len(decrypted_k) >= 8 else (decrypted_k or "Tersimpan di DB")
 

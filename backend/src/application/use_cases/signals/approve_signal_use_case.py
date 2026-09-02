@@ -1,5 +1,6 @@
 """Use case for approving a signal and triggering order execution."""
 
+import json
 import logging
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -11,6 +12,7 @@ from src.domain.events.signal_events import SignalApprovedEvent
 from src.domain.exceptions import SignalNotFoundError
 from src.domain.ports.event_publisher import IDomainEventPublisher
 from src.domain.ports.repositories import ISignalRepository
+from src.domain.services.signal_parser import SignalParserDomainService
 from src.domain.value_objects.side import OrderSide
 from src.domain.entities.signal import ParsedSignalDTO
 from src.presentation.api.schemas import TradingSignalUpdate
@@ -26,10 +28,12 @@ class ApproveSignalUseCase:
         signal_repo: ISignalRepository,
         execute_signal_use_case: ExecuteSignalUseCase,
         event_publisher: Optional[IDomainEventPublisher] = None,
+        parser: Optional[SignalParserDomainService] = None,
     ) -> None:
         self.signal_repo = signal_repo
         self.execute_signal_uc = execute_signal_use_case
         self.event_publisher = event_publisher
+        self.parser = parser or SignalParserDomainService()
 
     async def execute(self, cmd: ApproveSignalCommand) -> TradeExecutionResultDTO:
         """Approve signal and immediately execute trade."""
@@ -48,7 +52,6 @@ class ApproveSignalUseCase:
         resolved_leverage = cmd.custom_leverage
         if not resolved_leverage and getattr(signal, "parsed_json", None):
             try:
-                import json
                 pdata = json.loads(signal.parsed_json)
                 resolved_leverage = pdata.get("leverage")
             except Exception:
@@ -56,9 +59,7 @@ class ApproveSignalUseCase:
 
         if not resolved_leverage and getattr(signal, "raw_message", None):
             try:
-                from src.domain.services.signal_parser import SignalParserDomainService
-                parser = SignalParserDomainService()
-                reparsed = parser.parse(signal.raw_message)
+                reparsed = self.parser.parse(signal.raw_message)
                 if reparsed and reparsed.leverage:
                     resolved_leverage = reparsed.leverage
             except Exception:

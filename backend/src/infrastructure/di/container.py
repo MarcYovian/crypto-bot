@@ -4,6 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Optional
+from unittest.mock import MagicMock
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -582,7 +583,6 @@ class ApplicationContainer:
             self._is_initialized = True
             self.running = True
             if self.scheduler is None:
-                from unittest.mock import MagicMock
                 self.scheduler = MagicMock()
             logger.info("ApplicationContainer successfully initialized.")
 
@@ -617,7 +617,6 @@ class ApplicationContainer:
         """Start background runners."""
         self.running = True
         if self.scheduler is None:
-            from unittest.mock import MagicMock
             self.scheduler = MagicMock()
 
     async def shutdown(self) -> None:

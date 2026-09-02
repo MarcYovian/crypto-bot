@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock, AsyncMock
 
 from src.application.dto.trade_commands import CloseTradeCommand
 from src.domain.events.trade_events import TradeClosedEvent
@@ -45,11 +46,7 @@ class CloseTradeUseCase:
     async def execute(self, cmd: CloseTradeCommand) -> Dict[str, Any]:
         """Close a specific active trade by ID."""
         trade = await self.trade_repo.get(cmd.trade_id)
-        try:
-            from unittest.mock import MagicMock, AsyncMock
-            is_mock = isinstance(trade, (MagicMock, AsyncMock))
-        except ImportError:
-            is_mock = False
+        is_mock = isinstance(trade, (MagicMock, AsyncMock))
 
         if hasattr(self.trade_repo, "get_with_instrument") and not is_mock:
             trade_with_inst = await self.trade_repo.get_with_instrument(cmd.trade_id)

@@ -39,6 +39,7 @@ from src.presentation.api.schemas import (
     TradeRiskCreate,
     TradeSummaryCreate,
 )
+from src.utils.ws_cache_logger import write_ws_order_cache
 
 logger = logging.getLogger(__name__)
 
@@ -550,7 +551,6 @@ class HandleOrderFillUseCase:
 
     async def execute_from_raw_event(self, order_data: Any) -> Optional[Any]:
         """Parse raw exchange order update, match with DB order via 3-Tier Hierarchy, and execute fill transitions."""
-        from src.utils.ws_cache_logger import write_ws_order_cache
         try:
             await write_ws_order_cache(order_data)
         except Exception:

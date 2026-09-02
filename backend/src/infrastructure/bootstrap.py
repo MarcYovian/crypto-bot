@@ -11,6 +11,7 @@ from config.settings import settings
 from src.infrastructure.persistence.connection import init_db
 from src.infrastructure.di.container import container
 from src.infrastructure.scheduler import SchedulerService
+from src.presentation.api.schemas.master import StrategyCreate
 from src.presentation.telegram.bot_controller import TelegramBotController
 from src.utils.security import get_password_hash, decrypt_secret
 
@@ -67,7 +68,6 @@ async def initialize_system_defaults() -> None:
         strat_repo = container.get_strategy_repo(session)
         strategies = await strat_repo.get_all_strategies()
         if not strategies:
-            from src.presentation.api.schemas.master import StrategyCreate
             await strat_repo.create(
                 StrategyCreate(
                     name="Default 3-Tier Strategy",
