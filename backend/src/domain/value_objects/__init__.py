@@ -12,6 +12,7 @@ from src.domain.value_objects.price import Price
 from src.domain.value_objects.quantity import Quantity
 from src.domain.value_objects.leverage import Leverage
 from src.domain.value_objects.entry_zone import TakeProfitTarget, EntryZone, TradeGeometry
+from src.domain.value_objects.misfire_policy import MisfirePolicy
 
 __all__ = [
     "OrderSide",
@@ -28,4 +29,5 @@ __all__ = [
     "TakeProfitTarget",
     "EntryZone",
     "TradeGeometry",
+    "MisfirePolicy",
 ]

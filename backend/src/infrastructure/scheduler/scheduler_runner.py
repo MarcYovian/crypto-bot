@@ -1,23 +1,18 @@
-"""Scheduler lifecycle manager for APScheduler background recurring jobs."""
+"""Scheduler lifecycle manager for APScheduler background recurring jobs with database-driven recovery."""
 
+from datetime import datetime
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Union
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from pytz import timezone
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.domain.ports.gateways import INotificationGateway
-from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
-from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
-from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
-from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
-from src.infrastructure.persistence.repositories.order_repository import OrderRepository
-from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
-from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
-from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
-from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
-from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
+from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
+from src.domain.value_objects.misfire_policy import MisfirePolicy
+from src.infrastructure.di.container import container
 from src.infrastructure.scheduler.jobs import SchedulerJobs, WIB_TZ
+from src.infrastructure.scheduler.task_registry import DEFAULT_SYSTEM_TASKS, calculate_next_fire_time
 
 logger = logging.getLogger(__name__)
 
@@ -28,44 +23,161 @@ class SchedulerRunner:
     def __init__(
         self,
         jobs: Optional[SchedulerJobs] = None,
-        daily_risk_repo: Optional[DailyRiskRepository] = None,
-        trading_account_repo: Optional[TradingAccountRepository] = None,
-        risk_profile_repo: Optional[RiskProfileRepository] = None,
-        trade_repo: Optional[TradeRepository] = None,
-        order_repo: Optional[OrderRepository] = None,
-        instrument_repo: Optional[InstrumentRepository] = None,
-        trade_summary_repo: Optional[TradeSummaryRepository] = None,
-        trade_event_repo: Optional[TradeEventRepository] = None,
-        bot_log_repo: Optional[BotLogRepository] = None,
-        bot_setting_repo: Optional[BotSettingRepository] = None,
-        position_manager: Optional[Any] = None,
-        instrument_service: Optional[Any] = None,
-        exchange_gateway: Optional[Any] = None,
-        notification_gateway: Optional[INotificationGateway] = None,
         session_factory: Optional[async_sessionmaker[AsyncSession]] = None,
+        session: Optional[AsyncSession] = None,
+        exchange_gateway: Optional[IExchangeGateway] = None,
+        notification_gateway: Optional[INotificationGateway] = None,
+        **kwargs: Any,
     ) -> None:
         self.jobs = jobs or SchedulerJobs(
-            daily_risk_repo=daily_risk_repo,
-            trading_account_repo=trading_account_repo,
-            risk_profile_repo=risk_profile_repo,
-            trade_repo=trade_repo,
-            order_repo=order_repo,
-            instrument_repo=instrument_repo,
-            trade_summary_repo=trade_summary_repo,
-            trade_event_repo=trade_event_repo,
-            bot_log_repo=bot_log_repo,
-            bot_setting_repo=bot_setting_repo,
-            position_manager=position_manager,
-            instrument_service=instrument_service,
+            session_factory=session_factory,
+            session=session,
             exchange_gateway=exchange_gateway,
             notification_gateway=notification_gateway,
-            session_factory=session_factory,
+            **kwargs,
         )
         self.scheduler = AsyncIOScheduler(timezone=WIB_TZ)
 
     def __getattr__(self, name: str) -> Any:
         """Delegate job execution methods to the internal SchedulerJobs instance."""
         return getattr(self.jobs, name)
+
+    async def run_startup_recovery(self) -> Dict[str, Any]:
+        """Check and execute missed jobs following their MisfirePolicy upon bot startup."""
+        logger.info("Executing Scheduler startup downtime recovery check...")
+        async with self.jobs._get_session() as session:
+            task_repo = container.get_scheduler_task_repo(session)
+
+            # 1. Ensure default system tasks are seeded in DB
+            for def_task in DEFAULT_SYSTEM_TASKS:
+                existing = await task_repo.get(def_task["id"])
+                if not existing:
+                    next_fire = calculate_next_fire_time(def_task["cron_expr"])
+                    await task_repo.upsert_task(
+                        task_id=def_task["id"],
+                        name=def_task["name"],
+                        cron_expr=def_task["cron_expr"],
+                        misfire_policy=def_task["misfire_policy"],
+                        next_run_at=next_fire,
+                    )
+
+            now = datetime.now()
+            overdue_tasks = await task_repo.get_overdue_tasks(reference_time=now)
+            recovered: List[str] = []
+            skipped: List[str] = []
+
+            for task in overdue_tasks:
+                if task.misfire_policy in (MisfirePolicy.RUN_LATEST_ONCE, MisfirePolicy.IMMEDIATE):
+                    logger.warning(
+                        "Downtime recovery: Task '%s' was missed (policy: %s). Executing catch-up run...",
+                        task.id,
+                        task.misfire_policy.value,
+                    )
+                    try:
+                        await self.jobs.execute_job_by_id(task.id)
+                        recovered.append(task.id)
+                    except Exception as exc:
+                        logger.error("Downtime recovery failed for '%s': %s", task.id, exc)
+                elif task.misfire_policy == MisfirePolicy.SKIP_TO_NEXT:
+                    logger.info(
+                        "Downtime recovery: Task '%s' was missed (policy: SKIP_TO_NEXT). Advancing next run time...",
+                        task.id,
+                    )
+                    next_fire = calculate_next_fire_time(task.cron_expr, reference_time=now)
+                    await task_repo.update_next_run(task.id, next_fire)
+                    skipped.append(task.id)
+
+            await session.commit()
+            logger.info(
+                "Scheduler startup recovery complete: %d overdue tasks checked, %d recovered, %d skipped.",
+                len(overdue_tasks),
+                len(recovered),
+                len(skipped),
+            )
+            return {
+                "overdue_count": len(overdue_tasks),
+                "recovered": recovered,
+                "skipped": skipped,
+            }
+
+    async def update_task(
+        self,
+        task_id: str,
+        name: Optional[str] = None,
+        cron_expr: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        misfire_policy: Optional[Union[MisfirePolicy, str]] = None,
+        timezone_name: Optional[str] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Any:
+        """Unified function to update metadata, cron schedule, and active status for a scheduler task."""
+        if session is not None:
+            return await self._do_update_task(
+                session, task_id, name, cron_expr, is_active, misfire_policy, timezone_name
+            )
+        async with self.jobs._get_session() as s:
+            task = await self._do_update_task(
+                s, task_id, name, cron_expr, is_active, misfire_policy, timezone_name
+            )
+            await s.commit()
+            return task
+
+    async def _do_update_task(
+        self,
+        session: AsyncSession,
+        task_id: str,
+        name: Optional[str] = None,
+        cron_expr: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        misfire_policy: Optional[Union[MisfirePolicy, str]] = None,
+        timezone_name: Optional[str] = None,
+    ) -> Any:
+        task_repo = container.get_scheduler_task_repo(session)
+        task = await task_repo.get(task_id)
+        if not task:
+            raise ValueError(f"Scheduler task with id '{task_id}' not found.")
+
+        # 1. Update Name
+        if name is not None:
+            task.name = name
+
+        # 2. Update Misfire Policy (ENUM)
+        if misfire_policy is not None:
+            task.misfire_policy = (
+                misfire_policy
+                if isinstance(misfire_policy, MisfirePolicy)
+                else MisfirePolicy.from_str(misfire_policy)
+            )
+
+        # 3. Update Timezone
+        if timezone_name is not None:
+            task.timezone = timezone_name
+
+        # 4. Update Cron Schedule (Live Reschedule)
+        if cron_expr is not None:
+            tz = timezone(task.timezone)
+            # Validates format; raises ValueError if invalid
+            new_trigger = CronTrigger.from_crontab(cron_expr, timezone=tz)
+
+            task.cron_expr = cron_expr
+            task.next_run_at = calculate_next_fire_time(cron_expr, tz_name=task.timezone)
+
+            # Reschedule live job in memory if scheduler is running
+            if self.scheduler.running and self.scheduler.get_job(task_id):
+                self.scheduler.reschedule_job(task_id, trigger=new_trigger)
+
+        # 5. Update Active Status (Live Pause / Resume)
+        if is_active is not None:
+            task.is_active = is_active
+            if self.scheduler.running and self.scheduler.get_job(task_id):
+                if is_active:
+                    self.scheduler.resume_job(task_id)
+                else:
+                    self.scheduler.pause_job(task_id)
+
+        await session.flush()
+        await session.refresh(task)
+        return task
 
     def start(self) -> None:
         """Register all 8 cron jobs and start APScheduler."""

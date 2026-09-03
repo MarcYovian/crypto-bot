@@ -183,8 +183,8 @@ class BinanceExchangeAdapter(IExchangeGateway):
 
         clean_sym = Symbol.normalize(symbol)
         ccxt_sym = self.parser.to_ccxt_symbol(clean_sym)
-        side_val = (side.value if isinstance(side, OrderSide) else str(side)).lower()
-        type_val = (order_type.value if isinstance(order_type, OrderType) else str(order_type)).lower()
+        side_val = (side.value if isinstance(side, OrderSide) else side).lower()
+        type_val = (order_type.value if isinstance(order_type, OrderType) else order_type).lower()
 
         qty_float = float(qty.value if isinstance(qty, Quantity) else Decimal(str(qty)))
         price_float = float(effective_price.value if isinstance(effective_price, Price) else Decimal(str(effective_price))) if effective_price else None
@@ -387,8 +387,8 @@ class BinanceExchangeAdapter(IExchangeGateway):
         """Modify an active order in-place without cancel/recreate race conditions."""
         clean_sym = self.validator.validate_symbol(symbol)
         ccxt_sym = self.parser.to_ccxt_symbol(clean_sym)
-        side_val = (side.value if isinstance(side, OrderSide) else str(side)).lower()
-        type_val = (order_type.value if isinstance(order_type, OrderType) else str(order_type)).lower()
+        side_val = (side.value if isinstance(side, OrderSide) else side).lower()
+        type_val = (order_type.value if isinstance(order_type, OrderType) else order_type).lower()
 
         qty_float = float(qty.value if isinstance(qty, Quantity) else Decimal(str(qty))) if qty is not None else None
         price_float = float(price.value if isinstance(price, Price) else Decimal(str(price))) if price is not None else None

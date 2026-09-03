@@ -55,6 +55,7 @@ from src.infrastructure.persistence.repositories import (
     UserRepository,
     ExchangeRepository,
     TradeRiskRepository,
+    SchedulerTaskRepository,
 )
 
 from src.application.use_cases.trades import (
@@ -67,11 +68,13 @@ from src.application.use_cases.trades import (
     GetTradeHistoryUseCase,
     GetTradeDetailUseCase,
     PlaceBracketOrdersUseCase,
+    CleanupOrphanOrdersUseCase,
 )
 
 from src.application.use_cases.risk import (
     SimulateRiskUseCase,
     CheckDailyRiskUseCase,
+    DailyRiskSnapshotUseCase,
 )
 from src.application.use_cases.signals import (
     ParseSignalUseCase,
@@ -91,6 +94,7 @@ from src.application.use_cases.bot import (
     GetSettingsUseCase,
     UpdateSettingsUseCase,
     SaveCredentialsUseCase,
+    CheckSystemHeartbeatUseCase,
 )
 from src.application.use_cases.analytics import (
     GetDashboardSummaryUseCase,
@@ -119,9 +123,11 @@ from src.application.use_cases.strategies import (
 )
 from src.application.use_cases.reports import (
     ExportTradesCsvUseCase,
+    SendDailyPerformanceReportUseCase,
 )
 from src.application.use_cases.logs import (
     GetLogsUseCase,
+    PurgeOldLogsUseCase,
 )
 
 
@@ -291,6 +297,10 @@ class ApplicationContainer:
     @staticmethod
     def get_exchange_repo(session: AsyncSession) -> ExchangeRepository:
         return ExchangeRepository(session)
+
+    @staticmethod
+    def get_scheduler_task_repo(session: AsyncSession) -> SchedulerTaskRepository:
+        return SchedulerTaskRepository(session)
 
 
     # -------------------------------------------------------------------------
@@ -550,9 +560,44 @@ class ApplicationContainer:
     def get_export_trades_csv_use_case(self, session: AsyncSession) -> ExportTradesCsvUseCase:
         return ExportTradesCsvUseCase(trade_repo=self.get_trade_repo(session))
 
+    def get_send_daily_performance_report_use_case(self, session: AsyncSession) -> SendDailyPerformanceReportUseCase:
+        return SendDailyPerformanceReportUseCase(
+            trade_summary_repo=self.get_trade_summary_repo(session),
+            notification_gateway=self.notification_gateway,
+        )
+
     # Logs Use Cases
     def get_get_logs_use_case(self, session: AsyncSession) -> GetLogsUseCase:
         return GetLogsUseCase(log_repo=self.get_bot_log_repo(session))
+
+    def get_purge_old_logs_use_case(self, session: AsyncSession) -> PurgeOldLogsUseCase:
+        return PurgeOldLogsUseCase(log_repo=self.get_bot_log_repo(session))
+
+    # Bot Health & Maintenance Use Cases
+    def get_check_system_heartbeat_use_case(self, session: AsyncSession) -> CheckSystemHeartbeatUseCase:
+        return CheckSystemHeartbeatUseCase(
+            bot_setting_repo=self.get_bot_setting_repo(session),
+            bot_log_repo=self.get_bot_log_repo(session),
+            exchange_gateway=self.exchange_gateway,
+        )
+
+    def get_cleanup_orphan_orders_use_case(self, session: AsyncSession) -> CleanupOrphanOrdersUseCase:
+        return CleanupOrphanOrdersUseCase(
+            trade_repo=self.get_trade_repo(session),
+            order_repo=self.get_order_repo(session),
+            instrument_repo=self.get_instrument_repo(session),
+            trade_event_repo=self.get_trade_event_repo(session),
+            exchange_gateway=self.exchange_gateway,
+        )
+
+    def get_daily_risk_snapshot_use_case(self, session: AsyncSession) -> DailyRiskSnapshotUseCase:
+        return DailyRiskSnapshotUseCase(
+            daily_risk_repo=self.get_daily_risk_repo(session),
+            risk_profile_repo=self.get_risk_profile_repo(session),
+            bot_setting_repo=self.get_bot_setting_repo(session),
+            exchange_gateway=self.exchange_gateway,
+            notification_gateway=self.notification_gateway,
+        )
 
 
 

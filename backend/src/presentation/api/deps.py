@@ -400,3 +400,9 @@ async def require_admin_role(current_user: User = Depends(get_current_user)) -> 
 # Backward-compatible alias
 get_current_admin_user = require_admin_role
 
+
+def get_scheduler_runner():
+    """FastAPI dependency providing the active SchedulerService instance."""
+    from src.infrastructure.bootstrap import get_scheduler_service
+    return get_scheduler_service()
+

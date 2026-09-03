@@ -81,6 +81,21 @@ async def initialize_system_defaults() -> None:
         risk_repo = container.get_risk_profile_repo(session)
         await risk_repo.get_or_create_default_profile()
 
+        # 5. Ensure default Database-Driven Scheduler Tasks exist
+        from src.infrastructure.scheduler.task_registry import DEFAULT_SYSTEM_TASKS, calculate_next_fire_time
+        task_repo = container.get_scheduler_task_repo(session)
+        for def_task in DEFAULT_SYSTEM_TASKS:
+            existing = await task_repo.get(def_task["id"])
+            if not existing:
+                next_fire = calculate_next_fire_time(def_task["cron_expr"])
+                await task_repo.upsert_task(
+                    task_id=def_task["id"],
+                    name=def_task["name"],
+                    cron_expr=def_task["cron_expr"],
+                    misfire_policy=def_task["misfire_policy"],
+                    next_run_at=next_fire,
+                )
+
 
 async def start_background_runners() -> None:
     """Start APScheduler, Binance WebSocket stream, and Telegram bot listener."""
@@ -94,11 +109,12 @@ async def start_background_runners() -> None:
         except Exception as exc:
             logger.warning("Could not auto-register Telegram UI commands: %s", exc)
 
-    # 2. Start APScheduler (Maintenance & Daily Risk Snapshots)
+    # 2. Start APScheduler with Startup Downtime Recovery
     try:
         _scheduler_service = SchedulerService()
+        await _scheduler_service.run_startup_recovery()
         _scheduler_service.start()
-        logger.info("APScheduler background maintenance jobs started.")
+        logger.info("Database-Driven Scheduler started with downtime recovery complete.")
     except Exception as exc:
         logger.warning("Failed to start scheduler: %s", exc)
 
@@ -156,6 +172,14 @@ async def shutdown_system() -> None:
     # Release container resources (gateways, event publisher, database engine pool)
     await container.shutdown_resources()
     logger.info("Application shutdown completed cleanly.")
+
+
+def get_scheduler_service() -> SchedulerService:
+    """Retrieve the singleton SchedulerService instance, creating a fallback instance if not yet started."""
+    global _scheduler_service
+    if _scheduler_service is None:
+        _scheduler_service = SchedulerService()
+    return _scheduler_service
 
 
 @asynccontextmanager

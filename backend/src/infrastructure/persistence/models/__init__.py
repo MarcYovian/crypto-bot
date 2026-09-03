@@ -20,6 +20,7 @@ from src.infrastructure.persistence.models.strategies import Strategy
 from src.infrastructure.persistence.models.signal_providers import SignalProvider
 from src.infrastructure.persistence.models.risk_profiles import RiskProfile
 from src.infrastructure.persistence.models.users import User
+from src.infrastructure.persistence.models.scheduler_tasks import SchedulerTask, SchedulerTaskRun
 
 __all__ = [
     "BotSetting",
@@ -42,5 +43,7 @@ __all__ = [
     "SignalProvider",
     "RiskProfile",
     "User",
+    "SchedulerTask",
+    "SchedulerTaskRun",
 ]
 

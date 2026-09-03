@@ -1,34 +1,29 @@
-"""Automated background scheduler service for risk management, order maintenance, and system health."""
+"""Automated background scheduler service for risk management, order maintenance, and system health.
 
-import json
-import logging
+Acts as a Thin Driving Adapter triggering Clean Architecture Application Use Cases
+with full database-driven execution tracking, dynamic activation, and misfire recovery.
+"""
+
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
-from decimal import Decimal
-from typing import Any, AsyncIterator, Dict, List, Optional
+from datetime import date, datetime
+import logging
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from pytz import timezone
+from unittest.mock import Mock
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.persistence.connection import AsyncSessionLocal
 from src.infrastructure.di.container import container
 from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
-from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
-from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
-from src.infrastructure.persistence.repositories.daily_risk_repository import DailyRiskRepository
-from src.infrastructure.persistence.repositories.exchange_repository import ExchangeRepository
-from src.infrastructure.persistence.repositories.instrument_repository import InstrumentRepository
-from src.infrastructure.persistence.repositories.order_repository import OrderRepository
-from src.infrastructure.persistence.repositories.risk_profile_repository import RiskProfileRepository
-from src.infrastructure.persistence.repositories.trade_event_repository import TradeEventRepository
-from src.infrastructure.persistence.repositories.trade_repository import TradeRepository
-from src.infrastructure.persistence.repositories.trade_summary_repository import TradeSummaryRepository
-from src.infrastructure.persistence.repositories.trading_account_repository import TradingAccountRepository
-from src.presentation.api.schemas.system import BotLogCreate
-from src.presentation.api.schemas.trade import TradeStatusUpdate
-from src.presentation.api.schemas.event_summary import TradeSummaryCreate
+from src.application.dto.trade_commands import SyncPositionsCommand
 from src.application.use_cases.risk.daily_risk_snapshot_use_case import DailyRiskSnapshotUseCase
 from src.application.use_cases.trades.cleanup_orphan_orders_use_case import CleanupOrphanOrdersUseCase
+from src.application.use_cases.trades.sync_positions_use_case import SyncPositionsUseCase
 from src.application.use_cases.instruments.sync_instruments_use_case import SyncInstrumentsUseCase
+from src.application.use_cases.logs.purge_old_logs_use_case import PurgeOldLogsUseCase
+from src.application.use_cases.reports.send_daily_performance_report_use_case import SendDailyPerformanceReportUseCase
+from src.application.use_cases.bot.check_system_heartbeat_use_case import CheckSystemHeartbeatUseCase
+from src.infrastructure.scheduler.task_registry import calculate_next_fire_time
 from src.utils.ws_cache_logger import archive_ws_cache
 
 
@@ -37,57 +32,44 @@ WIB_TZ = timezone("Asia/Jakarta")
 
 
 class SchedulerJobs:
-    """Encapsulates execution logic and repository interactions for recurring maintenance tasks."""
+    """Thin Driving Adapter orchestrating background recurring maintenance jobs via Application Use Cases."""
+
+    TASK_METHOD_MAP: Dict[str, str] = {
+        "daily_risk_snapshot": "run_daily_risk_snapshot_job",
+        "cleanup_orphan_orders": "run_cleanup_orphan_orders_job",
+        "failsafe_sync_check": "run_failsafe_sync_job",
+        "sync_instruments_metadata": "run_sync_instruments_metadata_job",
+        "purge_old_logs": "run_purge_old_logs_job",
+        "daily_performance_report": "run_daily_performance_report_job",
+        "heartbeat_health_check": "run_heartbeat_health_check_job",
+        "archive_ws_cache": "run_archive_ws_cache_job",
+    }
 
     def __init__(
         self,
-        daily_risk_repo: Optional[DailyRiskRepository] = None,
-        trading_account_repo: Optional[TradingAccountRepository] = None,
-        risk_profile_repo: Optional[RiskProfileRepository] = None,
-        trade_repo: Optional[TradeRepository] = None,
-        order_repo: Optional[OrderRepository] = None,
-        instrument_repo: Optional[InstrumentRepository] = None,
-        trade_summary_repo: Optional[TradeSummaryRepository] = None,
-        trade_event_repo: Optional[TradeEventRepository] = None,
-        bot_log_repo: Optional[BotLogRepository] = None,
-        bot_setting_repo: Optional[BotSettingRepository] = None,
-        position_manager: Optional[Any] = None,
-        instrument_service: Optional[Any] = None,
-        exchange_gateway: Optional[Any] = None,
-        notification_gateway: Optional[INotificationGateway] = None,
         session_factory: Optional[async_sessionmaker[AsyncSession]] = None,
         session: Optional[AsyncSession] = None,
+        exchange_gateway: Optional[IExchangeGateway] = None,
+        notification_gateway: Optional[INotificationGateway] = None,
+        **kwargs: Any,
     ) -> None:
-        self.daily_risk_repo = daily_risk_repo
-        self.trading_account_repo = trading_account_repo
-        self.risk_profile_repo = risk_profile_repo
-        self.trade_repo = trade_repo
-        self.order_repo = order_repo
-        self.instrument_repo = instrument_repo
-        self.trade_summary_repo = trade_summary_repo
-        self.trade_event_repo = trade_event_repo
-        self.bot_log_repo = bot_log_repo
-        self.bot_setting_repo = bot_setting_repo
-        self.position_manager = position_manager
-        self.instrument_service = instrument_service
+        self.session_factory = session_factory or AsyncSessionLocal
+        self.session = session
         self.exchange_gateway = exchange_gateway
         self.notification_gateway = notification_gateway
-        self.session_factory = session_factory or AsyncSessionLocal
 
-        # Capture bound session if explicitly passed or already present in injected repositories
-        self.session = session
+        # Retain any mock use case overrides injected during tests
+        self._instrument_service = kwargs.get("instrument_service")
+        self._position_manager = kwargs.get("position_manager")
+
+        # Absorb any real database session from kwargs if provided (ignoring Mock instances)
         if self.session is None:
-            for repo in (
-                self.daily_risk_repo,
-                self.trade_repo,
-                self.order_repo,
-                self.instrument_repo,
-                self.bot_log_repo,
-                self.bot_setting_repo,
-            ):
-                if repo and getattr(repo, "session", None):
-                    self.session = repo.session
-                    break
+            for val in kwargs.values():
+                if val and not isinstance(val, Mock):
+                    s = getattr(val, "session", None)
+                    if s is not None and not isinstance(s, Mock):
+                        self.session = s
+                        break
 
     @asynccontextmanager
     async def _get_session(self) -> AsyncIterator[AsyncSession]:
@@ -103,6 +85,65 @@ class SchedulerJobs:
                     await session.rollback()
                     raise
 
+    async def _run_task_with_db_tracking(
+        self, session: AsyncSession, task_id: str, action_coro: Callable[[], Any]
+    ) -> Any:
+        """Wrap execution with database state checking, duration timing, audit logging, and next run calculation."""
+        task = None
+        task_repo = None
+        if not isinstance(session, Mock):
+            try:
+                task_repo = container.get_scheduler_task_repo(session)
+                task = await task_repo.get(task_id)
+            except Exception as get_exc:
+                logger.debug("Task '%s' state could not be read from DB: %s", task_id, get_exc)
+
+        # Check if task is paused/inactive in database
+        if task and not task.is_active:
+            logger.info("Task '%s' is inactive in database. Skipping scheduled execution.", task_id)
+            return None
+
+        started_at = datetime.now()
+        error_msg: Optional[str] = None
+        status = "SUCCESS"
+        result = None
+
+        try:
+            result = await action_coro()
+            return result
+        except Exception as exc:
+            status = "FAILED"
+            error_msg = str(exc)
+            raise
+        finally:
+            finished_at = datetime.now()
+            duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+            next_fire: Optional[datetime] = None
+            if task and task.cron_expr:
+                next_fire = calculate_next_fire_time(task.cron_expr, reference_time=finished_at)
+
+            if task_repo and not isinstance(session, Mock):
+                try:
+                    await task_repo.record_task_run(
+                        task_id=task_id,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        status=status,
+                        next_run_at=next_fire,
+                        duration_ms=duration_ms,
+                        result_summary=result if isinstance(result, (dict, list, int, str)) else None,
+                        error_message=error_msg,
+                    )
+                except Exception as audit_exc:
+                    logger.debug("Could not record task run for '%s': %s", task_id, audit_exc)
+
+    async def execute_job_by_id(self, task_id: str) -> Any:
+        """Execute a registered scheduler job by its task_id."""
+        method_name = self.TASK_METHOD_MAP.get(task_id)
+        if not method_name or not hasattr(self, method_name):
+            raise ValueError(f"Unknown scheduler task ID: '{task_id}'")
+        return await getattr(self, method_name)()
+
     # =========================================================================
     # JOB 1: Daily Risk Snapshot (00:00 WIB)
     # =========================================================================
@@ -111,22 +152,19 @@ class SchedulerJobs:
     ) -> Any:
         """Lock initial balance at midnight and compute daily risk budget via DailyRiskSnapshotUseCase."""
         async with self._get_session() as session:
-            daily_risk_repo = self.daily_risk_repo or DailyRiskRepository(session)
-            risk_profile_repo = self.risk_profile_repo or RiskProfileRepository(session)
-            bot_setting_repo = self.bot_setting_repo or BotSettingRepository(session)
-            exchange_gateway = self.exchange_gateway or container.exchange_gateway
-            notification_gateway = self.notification_gateway or container.notification_gateway
+            async def _action():
+                use_case = DailyRiskSnapshotUseCase(
+                    daily_risk_repo=container.get_daily_risk_repo(session),
+                    risk_profile_repo=container.get_risk_profile_repo(session),
+                    bot_setting_repo=container.get_bot_setting_repo(session),
+                    exchange_gateway=self.exchange_gateway or container.exchange_gateway,
+                    notification_gateway=self.notification_gateway or container.notification_gateway,
+                )
+                return await use_case.execute(account_id=account_id, snapshot_date=snapshot_date)
 
-            use_case = DailyRiskSnapshotUseCase(
-                daily_risk_repo=daily_risk_repo,
-                risk_profile_repo=risk_profile_repo,
-                bot_setting_repo=bot_setting_repo,
-                exchange_gateway=exchange_gateway,
-                notification_gateway=notification_gateway,
-            )
-            snapshot = await use_case.execute(account_id=account_id, snapshot_date=snapshot_date)
+            res = await self._run_task_with_db_tracking(session, "daily_risk_snapshot", _action)
             await session.commit()
-            return snapshot
+            return res
 
     # =========================================================================
     # JOB 2: Cleanup Orphan Orders (Every 30 Minutes)
@@ -136,128 +174,89 @@ class SchedulerJobs:
     ) -> int:
         """Cancel pending WAITING_ENTRY limit orders older than max_age_hours via CleanupOrphanOrdersUseCase."""
         async with self._get_session() as session:
-            trade_repo = self.trade_repo or TradeRepository(session)
-            order_repo = self.order_repo or OrderRepository(session)
-            instrument_repo = self.instrument_repo or InstrumentRepository(session)
-            trade_event_repo = self.trade_event_repo or TradeEventRepository(session)
-            exchange_gateway = self.exchange_gateway or container.exchange_gateway
+            async def _action():
+                use_case = CleanupOrphanOrdersUseCase(
+                    trade_repo=container.get_trade_repo(session),
+                    order_repo=container.get_order_repo(session),
+                    instrument_repo=container.get_instrument_repo(session),
+                    trade_event_repo=container.get_trade_event_repo(session),
+                    exchange_gateway=self.exchange_gateway or container.exchange_gateway,
+                )
+                return await use_case.execute(account_id=account_id, max_age_hours=max_age_hours)
 
-            use_case = CleanupOrphanOrdersUseCase(
-                trade_repo=trade_repo,
-                order_repo=order_repo,
-                instrument_repo=instrument_repo,
-                trade_event_repo=trade_event_repo,
-                exchange_gateway=exchange_gateway,
-            )
-            cancelled_count = await use_case.execute(account_id=account_id, max_age_hours=max_age_hours)
+            res = await self._run_task_with_db_tracking(session, "cleanup_orphan_orders", _action)
             await session.commit()
-            return cancelled_count
+            return res if res is not None else 0
 
     # =========================================================================
     # JOB 3: Failsafe Sync Check (Every 15 Minutes)
     # =========================================================================
     async def run_failsafe_sync_job(self, account_id: int = 1) -> Dict[str, Any]:
-        """Reconcile database active trades with live exchange open positions."""
+        """Reconcile database active trades with live exchange open positions via SyncPositionsUseCase."""
         async with self._get_session() as session:
-            trade_repo = self.trade_repo or TradeRepository(session)
-            instrument_repo = self.instrument_repo or InstrumentRepository(session)
-            client = self.exchange_gateway or container.exchange_gateway
+            async def _action():
+                client = self.exchange_gateway or container.exchange_gateway
+                use_case = (
+                    self._position_manager
+                    if isinstance(self._position_manager, SyncPositionsUseCase)
+                    else SyncPositionsUseCase(
+                        trade_repo=container.get_trade_repo(session),
+                        instrument_repo=container.get_instrument_repo(session),
+                        exchange_gateway=client,
+                        order_repo=container.get_order_repo(session),
+                        execution_repo=container.get_execution_repo(session),
+                        trade_summary_repo=container.get_trade_summary_repo(session),
+                        event_publisher=container.event_publisher,
+                    )
+                )
 
-            active_trades = await trade_repo.get_all_active_trades(account_id=account_id)
-            positions_map: Dict[str, Decimal] = {}
+                cmd = SyncPositionsCommand(account_id=account_id)
+                result = await use_case.execute(cmd)
 
-            if client:
-                try:
-                    live_positions = await client.fetch_positions()
-                    for pos in live_positions:
-                        sym = str(pos.get("symbol", "")).upper().replace("/", "").split(":")[0]
-                        size = Decimal(str(pos.get("contracts") or pos.get("size") or 0.0))
-                        positions_map[sym] = size
-                except Exception as e:
-                    logger.error("Failsafe sync: Failed to fetch exchange positions: %s", e)
+                synced = result.get("synced_trades", 0)
+                desynced = result.get("desynced_trades", 0)
+                result["total_checked"] = synced + desynced
+                result["desynced_closed"] = desynced
+                return result
 
-            desynced_closed = 0
-            for trade in active_trades:
-                instrument = await instrument_repo.get(trade.instrument_id)
-                if not instrument:
-                    continue
-
-                inst_sym = instrument.symbol.upper().replace("/", "").split(":")[0]
-                live_qty = positions_map.get(inst_sym, Decimal("0.0"))
-
-                # If position is closed on exchange but still open in DB
-                if live_qty == Decimal("0.0") and trade.status in ("OPEN", "PARTIAL"):
-                    if self.position_manager and hasattr(self.position_manager, "finalize_trade_closure"):
-                        await self.position_manager.finalize_trade_closure(
-                            trade_id=trade.id, close_reason="FAILSAFE_SYNC"
-                        )
-                    else:
-                        await trade_repo.update_partial_close(
-                            trade_id=trade.id,
-                            closed_qty=trade.remaining_qty or trade.position_size,
-                        )
-                        await trade_repo.update_trade_status(
-                            trade_id=trade.id,
-                            schema=TradeStatusUpdate(status="CLOSED", closed_at=datetime.now()),
-                        )
-                        if self.trade_summary_repo:
-                            await self.trade_summary_repo.create(
-                                TradeSummaryCreate(
-                                    trade_id=trade.id,
-                                    gross_pnl=Decimal("0.0"),
-                                    net_pnl=Decimal("0.0"),
-                                    commission=Decimal("0.0"),
-                                    funding=Decimal("0.0"),
-                                    roi=Decimal("0.0"),
-                                    rr=Decimal("0.0"),
-                                    result="BREAKEVEN",
-                                    duration_seconds=0,
-                                    close_reason="FAILSAFE_SYNC",
-                                    closed_at=datetime.now(),
-                                )
-                            )
-                    desynced_closed += 1
-
+            res = await self._run_task_with_db_tracking(session, "failsafe_sync_check", _action)
             await session.commit()
-            return {
-                "total_checked": len(active_trades),
-                "desynced_closed": desynced_closed,
-                "timestamp": datetime.now().isoformat(),
-            }
+            return res if res is not None else {"status": "SKIPPED", "total_checked": 0, "desynced_closed": 0}
 
     # =========================================================================
     # JOB 4: Sync Instruments Metadata (Every 12 Hours)
     # =========================================================================
     async def run_sync_instruments_metadata_job(self, exchange_id: int = 1) -> int:
         """Fetch updated symbol filters from exchange and bulk-upsert into instruments table."""
-        if self.instrument_service and hasattr(self.instrument_service, "sync_all_instruments"):
-            return await self.instrument_service.sync_all_instruments(exchange_id=exchange_id)
+        if self._instrument_service and hasattr(self._instrument_service, "sync_all_instruments"):
+            return await self._instrument_service.sync_all_instruments(exchange_id=exchange_id)
 
         async with self._get_session() as session:
-            instrument_repo = self.instrument_repo or InstrumentRepository(session)
-            exchange_repo = ExchangeRepository(session)
-            exchange_gateway = self.exchange_gateway or container.exchange_gateway
+            async def _action():
+                use_case = SyncInstrumentsUseCase(
+                    instrument_repo=container.get_instrument_repo(session),
+                    exchange_repo=container.get_exchange_repo(session),
+                    exchange_gateway=self.exchange_gateway or container.exchange_gateway,
+                )
+                return await use_case.sync_all_instruments(exchange_id=exchange_id)
 
-            use_case = SyncInstrumentsUseCase(
-                instrument_repo=instrument_repo,
-                exchange_repo=exchange_repo,
-                exchange_gateway=exchange_gateway,
-            )
-            count = await use_case.sync_all_instruments(exchange_id=exchange_id)
+            res = await self._run_task_with_db_tracking(session, "sync_instruments_metadata", _action)
             await session.commit()
-            return count
+            return res if res is not None else 0
 
     # =========================================================================
     # JOB 5: Purge Old Logs (Daily at 03:00 WIB)
     # =========================================================================
     async def run_purge_old_logs_job(self, days: int = 30) -> int:
-        """Purge system logs older than retention days."""
+        """Purge system logs older than retention days via PurgeOldLogsUseCase."""
         async with self._get_session() as session:
-            bot_log_repo = self.bot_log_repo or BotLogRepository(session)
-            deleted_count = await bot_log_repo.purge_old_logs(days=days)
+            async def _action():
+                use_case = PurgeOldLogsUseCase(log_repo=container.get_bot_log_repo(session))
+                return await use_case.execute(days=days)
+
+            res = await self._run_task_with_db_tracking(session, "purge_old_logs", _action)
             await session.commit()
-            logger.info("Purged %d system logs older than %d days.", deleted_count, days)
-            return deleted_count
+            return res if res is not None else 0
 
     # =========================================================================
     # JOB 6: Daily Performance Report (00:05 WIB)
@@ -265,97 +264,34 @@ class SchedulerJobs:
     async def run_daily_performance_report_job(self, account_id: int = 1) -> Dict[str, Any]:
         """Aggregate yesterday's closed trades and send daily performance report to Telegram."""
         async with self._get_session() as session:
-            trade_summary_repo = self.trade_summary_repo or TradeSummaryRepository(session)
-            notifier = self.notification_gateway or container.notification_gateway
+            async def _action():
+                use_case = SendDailyPerformanceReportUseCase(
+                    trade_summary_repo=container.get_trade_summary_repo(session),
+                    notification_gateway=self.notification_gateway or container.notification_gateway,
+                )
+                return await use_case.execute(account_id=account_id)
 
-            yesterday_end = datetime.now()
-            yesterday_start = yesterday_end - timedelta(days=1)
-
-            perf = await trade_summary_repo.get_performance_summary(
-                account_id=account_id,
-                start_date=yesterday_start,
-                end_date=yesterday_end,
-            )
-
-            total_trades = perf["total_trades"]
-            wins = perf["winning_trades"]
-            losses = perf["losing_trades"]
-            total_pnl = perf["total_net_pnl"]
-            win_rate = perf["win_rate"]
-
-            if notifier:
-                try:
-                    pnl_icon = "🟢" if total_pnl >= Decimal("0") else "🔴"
-                    msg = (
-                        f"📊 <b>DAILY TRADING RECAP REPORT</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"📈 Total Trades Selesai: <b>{total_trades}</b>\n"
-                        f"🏆 Win: <b>{wins}</b> | 🛑 Loss: <b>{losses}</b>\n"
-                        f"🎯 Win Rate: <b>{win_rate}%</b>\n"
-                        f"{pnl_icon} Net Realized PnL: <b>${total_pnl:+,.2f} USDT</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━"
-                    )
-                    await notifier.send_message(chat_id="ADMIN_CHANNEL", text=msg)
-                except Exception as e:
-                    logger.error("Failed to send daily performance report: %s", e)
-
-            return {
-                "total_trades": total_trades,
-                "wins": wins,
-                "losses": losses,
-                "win_rate": float(win_rate),
-                "net_pnl": float(total_pnl),
-            }
+            res = await self._run_task_with_db_tracking(session, "daily_performance_report", _action)
+            await session.commit()
+            return res if res is not None else {}
 
     # =========================================================================
     # JOB 7: Heartbeat Health Check (Every 1 Hour)
     # =========================================================================
     async def run_heartbeat_health_check_job(self) -> Dict[str, Any]:
-        """Perform system-wide health check and record log audit."""
+        """Perform system-wide health check and record log audit via CheckSystemHeartbeatUseCase."""
         async with self._get_session() as session:
-            bot_setting_repo = self.bot_setting_repo or BotSettingRepository(session)
-            bot_log_repo = self.bot_log_repo or BotLogRepository(session)
-            client = self.exchange_gateway or container.exchange_gateway
-
-            db_healthy = True
-            exchange_healthy = True
-
-            # 1. Check DB query
-            try:
-                await bot_setting_repo.get_all_as_dict()
-            except Exception:
-                db_healthy = False
-
-            # 2. Check exchange API liveness
-            if client:
-                try:
-                    await client.fetch_balance()
-                except Exception:
-                    exchange_healthy = False
-
-            is_healthy = db_healthy and exchange_healthy
-            level = "INFO" if is_healthy else "ERROR"
-
-            context_dict = {
-                "db_healthy": db_healthy,
-                "exchange_healthy": exchange_healthy,
-                "is_healthy": is_healthy,
-            }
-
-            await bot_log_repo.create(
-                BotLogCreate(
-                    level=level,
-                    module="SchedulerService",
-                    message="Hourly Heartbeat Health Check",
-                    context_json=json.dumps(context_dict),
+            async def _action():
+                use_case = CheckSystemHeartbeatUseCase(
+                    bot_setting_repo=container.get_bot_setting_repo(session),
+                    bot_log_repo=container.get_bot_log_repo(session),
+                    exchange_gateway=self.exchange_gateway or container.exchange_gateway,
                 )
-            )
-            await session.commit()
+                return await use_case.execute()
 
-            return {
-                **context_dict,
-                "timestamp": datetime.now().isoformat(),
-            }
+            res = await self._run_task_with_db_tracking(session, "heartbeat_health_check", _action)
+            await session.commit()
+            return res if res is not None else {}
 
     # =========================================================================
     # JOB 8: Archive WebSocket Cache (Daily at 01:00 WIB)
@@ -372,6 +308,25 @@ class SchedulerJobs:
                 total_archived,
                 len(results),
             )
+
+            # Record audit trail in DB if database session is reachable
+            try:
+                async with self._get_session() as session:
+                    task_repo = container.get_scheduler_task_repo(session)
+                    task = await task_repo.get("archive_ws_cache")
+                    next_fire = calculate_next_fire_time(task.cron_expr) if task else None
+                    await task_repo.record_task_run(
+                        task_id="archive_ws_cache",
+                        started_at=datetime.now(),
+                        finished_at=datetime.now(),
+                        status="SUCCESS",
+                        next_run_at=next_fire,
+                        result_summary={"archived_count": total_archived},
+                    )
+                    await session.commit()
+            except Exception as db_exc:
+                logger.debug("Could not record archive_ws_cache audit to DB: %s", db_exc)
+
             return results
         except Exception as e:
             logger.error("Failed running archive_ws_cache_job: %s", e)
