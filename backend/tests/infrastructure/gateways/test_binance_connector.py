@@ -184,3 +184,42 @@ async def test_binance_connector_thread_safe_lazy_init():
     assert results[0] is results[1]
     assert results[1] is results[2]
     await connector.close()
+
+
+@pytest.mark.asyncio
+async def test_binance_connector_fetch_leverage_brackets_fallback():
+    """Test leverage brackets parsing fallback when fapiPrivateGetLeverageBracket is absent."""
+    connector = BinanceConnector(testnet=True)
+    mock_exchange = MagicMock(spec=["fetch_leverage_tiers", "close"])
+    mock_exchange.fetch_leverage_tiers = AsyncMock(return_value={
+        "BTC/USDT:USDT": [
+            {
+                "tier": 1,
+                "symbol": "BTC/USDT:USDT",
+                "currency": "USDT",
+                "minNotional": 0,
+                "maxNotional": 50000,
+                "maintenanceMarginRate": 0.004,
+                "maxLeverage": 125,
+                "info": {
+                    "bracket": 1,
+                    "initialLeverage": 125,
+                    "notionalCap": 50000,
+                    "notionalFloor": 0,
+                    "maintMarginRatio": 0.004,
+                    "cum": 0.0,
+                },
+            }
+        ]
+    })
+    connector.get_rest_exchange = AsyncMock(return_value=mock_exchange)
+
+    results = await connector.fetch_leverage_brackets("BTC/USDT:USDT")
+    assert len(results) == 1
+    assert results[0]["symbol"] == "BTCUSDT"
+    brackets = results[0]["brackets"]
+    assert len(brackets) == 1
+    assert brackets[0]["bracket"] == 1
+    assert brackets[0]["initial_leverage"] == 125
+    assert brackets[0]["notional_cap"] == Decimal("50000")
+    await connector.close()

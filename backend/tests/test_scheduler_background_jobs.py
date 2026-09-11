@@ -23,7 +23,6 @@ from src.infrastructure.persistence.repositories.bot_log_repository import BotLo
 from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
 from src.infrastructure.scheduler.jobs import SchedulerJobs as SchedulerService
 from src.application.use_cases.instruments.sync_instruments_use_case import SyncInstrumentsUseCase as InstrumentService
-from src.application.use_cases.trades.sync_positions_use_case import SyncPositionsUseCase as PositionManager
 from src.domain.ports.gateways import IExchangeGateway, INotificationGateway
 
 
@@ -91,24 +90,12 @@ async def sched_env(async_session: AsyncSession):
     def create_scheduler(exchange_mock=None, binance_mock=None, tg_mock=None, pos_mgr=None, inst_svc=None):
         mock_gw = exchange_mock or binance_mock
         return SchedulerService(
-            daily_risk_repo=DailyRiskRepository(async_session),
-            trading_account_repo=TradingAccountRepository(async_session),
-            risk_profile_repo=RiskProfileRepository(async_session),
-            trade_repo=TradeRepository(async_session),
-            order_repo=OrderRepository(async_session),
-            instrument_repo=InstrumentRepository(async_session),
-            trade_summary_repo=TradeSummaryRepository(async_session),
-            trade_event_repo=TradeEventRepository(async_session),
-            bot_log_repo=BotLogRepository(async_session),
-            bot_setting_repo=BotSettingRepository(async_session),
-            position_manager=pos_mgr,
-            instrument_service=inst_svc,
+            session=async_session,
             exchange_gateway=mock_gw,
             notification_gateway=tg_mock or AsyncMock(spec=INotificationGateway),
+            position_manager=pos_mgr,
+            instrument_service=inst_svc,
         )
-
-
-
 
     return {"exchange": exchange, "account": account, "inst": inst, "strategy": strategy, "create_scheduler": create_scheduler}
 
@@ -210,15 +197,14 @@ async def test_run_failsafe_sync_job(async_session: AsyncSession, sched_env: dic
     mock_gateway = AsyncMock(spec=IExchangeGateway)
     mock_gateway.fetch_positions = AsyncMock(return_value=[])
 
-    mock_pos_mgr = AsyncMock(spec=PositionManager)
-    mock_pos_mgr.finalize_trade_closure = AsyncMock()
-
-    scheduler = env["create_scheduler"](exchange_mock=mock_gateway, pos_mgr=mock_pos_mgr)
+    scheduler = env["create_scheduler"](exchange_mock=mock_gateway)
     sync_res = await scheduler.run_failsafe_sync_job(account_id=env["account"].id)
 
     assert sync_res["total_checked"] == 1
     assert sync_res["desynced_closed"] == 1
-    mock_pos_mgr.finalize_trade_closure.assert_called_once_with(trade_id=active_trade.id, close_reason="FAILSAFE_SYNC")
+    assert sync_res["desynced_trades"] == 1
+    await async_session.refresh(active_trade)
+    assert active_trade.status == "CLOSED"
 
 
 

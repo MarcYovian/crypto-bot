@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 import ccxt.async_support as ccxt
 import ccxt.pro as ccxtpro
 
@@ -82,16 +82,16 @@ class BinanceConnector:
         if api_key is not None:
             self.api_key = api_key
             if self._exchange:
-                self._exchange.apiKey = api_key
+                setattr(self._exchange, "apiKey", api_key)
             if self._ws_exchange:
-                self._ws_exchange.apiKey = api_key
+                setattr(self._ws_exchange, "apiKey", api_key)
 
         if secret_key is not None:
             self.secret_key = secret_key
             if self._exchange:
-                self._exchange.secret = secret_key
+                setattr(self._exchange, "secret", secret_key)
             if self._ws_exchange:
-                self._ws_exchange.secret = secret_key
+                setattr(self._ws_exchange, "secret", secret_key)
 
         if testnet is not None:
             self.testnet = testnet
@@ -123,7 +123,7 @@ class BinanceConnector:
                 config = self._build_exchange_config()
                 if loop is not None:
                     config["asyncio_loop"] = loop
-                self._exchange = ccxt.binanceusdm(config)
+                self._exchange = ccxt.binanceusdm(cast(Any, config))
                 self._apply_sandbox_mode(self._exchange, self.testnet)
             return self._exchange
 
@@ -144,7 +144,7 @@ class BinanceConnector:
                 config = self._build_exchange_config()
                 if loop is not None:
                     config["asyncio_loop"] = loop
-                self._ws_exchange = ccxtpro.binanceusdm(config)
+                self._ws_exchange = ccxtpro.binanceusdm(cast(Any, config))
                 self._apply_sandbox_mode(self._ws_exchange, self.testnet)
             return self._ws_exchange
 
@@ -311,30 +311,48 @@ class BinanceConnector:
                 clean_sym = symbol.replace("/", "").replace(":USDT", "").upper()
                 params["symbol"] = clean_sym
 
+            raw_data: Any
             if hasattr(exchange, "fapiPrivateGetLeverageBracket"):
                 raw_data = await exchange.fapiPrivateGetLeverageBracket(params)
             else:
-                raw_data = await exchange.fetch_leverage_tiers(symbol)
+                symbols_arg = [symbol] if symbol else None
+                raw_data = await exchange.fetch_leverage_tiers(symbols_arg)
 
-            if isinstance(raw_data, dict):
-                raw_data = [raw_data]
+            raw_items: List[Dict[str, Any]] = []
+            if isinstance(raw_data, list):
+                raw_items = [cast(Dict[str, Any], item) for item in raw_data if isinstance(item, dict)]
+            elif isinstance(raw_data, dict):
+                if "brackets" in raw_data:
+                    raw_items = [cast(Dict[str, Any], raw_data)]
+                else:
+                    # CCXT unified dict: { symbol: [tier, ...] }
+                    for sym_key, tiers in raw_data.items():
+                        raw_items.append({
+                            "symbol": sym_key,
+                            "brackets": [
+                                t.get("info", t) if isinstance(t, dict) else (getattr(t, "info", None) or t)
+                                for t in (tiers or [])
+                            ],
+                        })
 
             results: List[Dict[str, Any]] = []
             max_safe_cap = Decimal("9999999999")  # Prevent NUMERIC(18, 8) overflow on infinity caps
-            for item in (raw_data or []):
-                sym = item.get("symbol", "").replace("/", "").replace(":USDT", "").upper()
-                brackets_parsed = []
-                for b in item.get("brackets", []):
-                    raw_cap = Decimal(str(b.get("notionalCap", 0)))
+            for item in raw_items:
+                sym_raw = item.get("symbol", "")
+                sym = str(sym_raw).replace("/", "").replace(":USDT", "").upper()
+                brackets_parsed: List[Dict[str, Any]] = []
+                for b_raw in item.get("brackets", []):
+                    b: Dict[str, Any] = b_raw if isinstance(b_raw, dict) else (getattr(b_raw, "info", None) or {})
+                    raw_cap = Decimal(str(b.get("notionalCap") or b.get("maxNotional") or 0))
                     capped_val = min(raw_cap, max_safe_cap)
-                    b_bracket = b.get("bracket")
-                    b_lev = b.get("initialLeverage")
+                    b_bracket = b.get("bracket") or b.get("tier")
+                    b_lev = b.get("initialLeverage") or b.get("maxLeverage")
                     brackets_parsed.append({
                         "bracket": int(b_bracket) if b_bracket is not None else 1,
                         "initial_leverage": int(b_lev) if b_lev is not None else 20,
                         "notional_cap": capped_val,
-                        "notional_floor": Decimal(str(b.get("notionalFloor") or 0)),
-                        "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio") or "0.01")),
+                        "notional_floor": Decimal(str(b.get("notionalFloor") or b.get("minNotional") or 0)),
+                        "maint_margin_ratio": Decimal(str(b.get("maintMarginRatio") or b.get("maintenanceMarginRate") or "0.01")),
                         "cum": Decimal(str(b.get("cum") or 0)),
                     })
                 results.append({

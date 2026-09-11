@@ -130,21 +130,24 @@ class SyncPositionsUseCase:
                     except Exception as trade_fetch_exc:
                         logger.debug("Could not fetch trade history for self-healing: %s", trade_fetch_exc)
 
-                # Record execution in DB
-                if self.execution_repo:
+                # Record execution in DB if a parent order exists
+                if self.execution_repo and self.order_repo:
                     try:
-                        await self.execution_repo.create(
-                            ExecutionCreate(
-                                trade_id=trade.id,
-                                order_id=None,
-                                price=exit_price,
-                                qty=exit_qty,
-                                commission=fee,
-                                commission_asset="USDT",
-                                realized_pnl=realized_pnl,
-                                executed_at=datetime.now(),
+                        trade_orders = await self.order_repo.get_orders_by_trade_id(trade.id)
+                        matching_order_id = trade_orders[0].id if trade_orders else None
+                        if matching_order_id is not None:
+                            await self.execution_repo.create(
+                                ExecutionCreate(
+                                    trade_id=trade.id,
+                                    order_id=matching_order_id,
+                                    price=exit_price,
+                                    qty=exit_qty,
+                                    commission=fee,
+                                    commission_asset="USDT",
+                                    realized_pnl=realized_pnl,
+                                    executed_at=datetime.now(),
+                                )
                             )
-                        )
                     except Exception as e_exc:
                         logger.debug("Failed saving execution in self-healing sync: %s", e_exc)
 

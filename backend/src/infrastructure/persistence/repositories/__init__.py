@@ -21,6 +21,7 @@ from src.infrastructure.persistence.repositories.trade_summary_repository import
 from src.infrastructure.persistence.repositories.bot_setting_repository import BotSettingRepository
 from src.infrastructure.persistence.repositories.bot_log_repository import BotLogRepository
 from src.infrastructure.persistence.repositories.user_repository import UserRepository
+from src.infrastructure.persistence.repositories.scheduler_task_repository import SchedulerTaskRepository
 
 __all__ = [
     "BaseRepository",
@@ -44,5 +45,6 @@ __all__ = [
     "BotSettingRepository",
     "BotLogRepository",
     "UserRepository",
+    "SchedulerTaskRepository",
 ]
 

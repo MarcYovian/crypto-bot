@@ -22,6 +22,7 @@ from src.presentation.api.routers.settings import router as settings_router
 from src.presentation.api.routers.logs import router as logs_router
 from src.presentation.api.routers.reports import router as reports_router
 from src.presentation.api.routers.websocket import router as websocket_router
+from src.presentation.api.routers.scheduler import router as scheduler_router
 
 
 def create_app(lifespan: Optional[Any] = None) -> FastAPI:
@@ -75,6 +76,7 @@ def create_app(lifespan: Optional[Any] = None) -> FastAPI:
     app.include_router(calculator_router)
     app.include_router(bot_router)
     app.include_router(settings_router)
+    app.include_router(scheduler_router)
     app.include_router(logs_router)
     app.include_router(reports_router)
     app.include_router(websocket_router)
