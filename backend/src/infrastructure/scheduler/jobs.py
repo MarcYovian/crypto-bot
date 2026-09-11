@@ -6,6 +6,7 @@ with full database-driven execution tracking, dynamic activation, and misfire re
 
 from contextlib import asynccontextmanager
 from datetime import date, datetime
+import json
 import logging
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from pytz import timezone
@@ -124,6 +125,13 @@ class SchedulerJobs:
 
             if task_repo and not isinstance(session, Mock):
                 try:
+                    summary_str: Optional[str] = None
+                    if result is not None:
+                        if isinstance(result, (dict, list)):
+                            summary_str = json.dumps(result, default=str)
+                        else:
+                            summary_str = str(result)
+
                     await task_repo.record_task_run(
                         task_id=task_id,
                         started_at=started_at,
@@ -131,7 +139,7 @@ class SchedulerJobs:
                         status=status,
                         next_run_at=next_fire,
                         duration_ms=duration_ms,
-                        result_summary=result if isinstance(result, (dict, list, int, str)) else None,
+                        result_summary=summary_str,
                         error_message=error_msg,
                     )
                 except Exception as audit_exc:
