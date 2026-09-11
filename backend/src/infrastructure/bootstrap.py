@@ -96,7 +96,6 @@ async def initialize_system_defaults() -> None:
                     next_run_at=next_fire,
                 )
 
-
 async def start_background_runners() -> None:
     """Start APScheduler, Binance WebSocket stream, and Telegram bot listener."""
     global _scheduler_service, _telegram_notifier
