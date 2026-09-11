@@ -16,9 +16,8 @@ from src.domain.exceptions import (
     OrderRejectError,
     RateLimitError,
 )
-from src.utils.rest_cache_logger import (
-    write_rest_request_cache,
-    write_rest_response_cache,
+from src.utils.file_cache.gateway_cache import (
+    GatewayCacheLogger,
     extract_symbol_from_args,
 )
 
@@ -35,11 +34,13 @@ class BinanceConnector:
         api_secret: Optional[str] = None,
         testnet: bool = True,
         timeout: int = 30000,
+        cache_logger: Optional[GatewayCacheLogger] = None,
     ) -> None:
         self.api_key = api_key
         self.secret_key = secret_key or api_secret
         self.testnet = testnet
         self.timeout = timeout
+        self.cache_logger = cache_logger or GatewayCacheLogger(gateway_name="binance")
         self._exchange: Optional[ccxt.binanceusdm] = None
         self._ws_exchange: Optional[ccxtpro.binanceusdm] = None
         self._lock = asyncio.Lock()
@@ -182,7 +183,7 @@ class BinanceConnector:
 
         # 1. Record REST Request Cache
         try:
-            await write_rest_request_cache(
+            await self.cache_logger.write_request_cache(
                 method_name=method_name,
                 args=args,
                 kwargs=kwargs,
@@ -209,7 +210,7 @@ class BinanceConnector:
 
             # 2. Record REST Response Cache
             try:
-                await write_rest_response_cache(
+                await self.cache_logger.write_response_cache(
                     method_name=method_name,
                     response_data=res,
                     timestamp_str=timestamp_str,
@@ -225,7 +226,7 @@ class BinanceConnector:
 
             # Record REST Error Response Cache
             try:
-                await write_rest_response_cache(
+                await self.cache_logger.write_response_cache(
                     method_name=method_name,
                     response_data=None,
                     timestamp_str=timestamp_str,

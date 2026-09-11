@@ -29,7 +29,7 @@ from src.presentation.api.schemas.event_summary import TradeSummaryCreate
 from src.application.use_cases.risk.daily_risk_snapshot_use_case import DailyRiskSnapshotUseCase
 from src.application.use_cases.trades.cleanup_orphan_orders_use_case import CleanupOrphanOrdersUseCase
 from src.application.use_cases.instruments.sync_instruments_use_case import SyncInstrumentsUseCase
-from src.utils.ws_cache_logger import archive_ws_cache
+from src.utils.file_cache import GatewayCacheLogger
 
 
 logger = logging.getLogger(__name__)
@@ -363,12 +363,17 @@ class SchedulerJobs:
     async def run_archive_ws_cache_job(
         self, base_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Archive all incoming WebSocket cache log files into date-partitioned .tar.gz archives."""
+        """Archive all incoming WebSocket and REST cache log files into date-partitioned .tar.gz archives."""
         try:
-            results = await archive_ws_cache(base_path=base_path)
+            gateway_logger = GatewayCacheLogger(
+                gateway_name="binance",
+                ws_base_path=base_path,
+                rest_base_path=base_path,
+            )
+            results = await gateway_logger.archive(scope="all" if base_path is None else "ws")
             total_archived = sum(r.get("archived_count", 0) for r in results)
             logger.info(
-                "Daily WebSocket cache archive job completed: %d files archived across %d accounts.",
+                "Daily cache archive job completed: %d files archived across %d entries (WS & REST).",
                 total_archived,
                 len(results),
             )

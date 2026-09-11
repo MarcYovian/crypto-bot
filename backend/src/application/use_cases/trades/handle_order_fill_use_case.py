@@ -39,7 +39,7 @@ from src.presentation.api.schemas import (
     TradeRiskCreate,
     TradeSummaryCreate,
 )
-from src.utils.ws_cache_logger import write_ws_order_cache
+from src.utils.file_cache import GatewayCacheLogger
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class HandleOrderFillUseCase:
         precision_filter: Optional[PrecisionFilterDomainService] = None,
         risk_calculator: Optional[RiskCalculatorDomainService] = None,
         place_bracket_orders_use_case: Optional[PlaceBracketOrdersUseCase] = None,
+        cache_logger: Optional[GatewayCacheLogger] = None,
     ) -> None:
 
         self.trade_repo = trade_repo
@@ -73,6 +74,7 @@ class HandleOrderFillUseCase:
         self.daily_risk_repo = daily_risk_repo
         self.instrument_repo = instrument_repo
         self.exchange_gateway = exchange_gateway
+        self.cache_logger = cache_logger or GatewayCacheLogger(gateway_name="binance")
         self.event_publisher = event_publisher
         self.precision = precision_filter or PrecisionFilterDomainService()
         self.risk_calc = risk_calculator or RiskCalculatorDomainService()
@@ -552,7 +554,7 @@ class HandleOrderFillUseCase:
     async def execute_from_raw_event(self, order_data: Any) -> Optional[Any]:
         """Parse raw exchange order update, match with DB order via 3-Tier Hierarchy, and execute fill transitions."""
         try:
-            await write_ws_order_cache(order_data)
+            await self.cache_logger.write_ws_event_cache(order_data)
         except Exception:
             pass
 

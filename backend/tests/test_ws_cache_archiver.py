@@ -1,15 +1,14 @@
-"""Unit tests for WebSocket log cache .tar.gz archiver and daily scheduler background job."""
+"""Unit tests for WebSocket and REST log cache .tar.gz archiver and daily scheduler background job."""
 
 import os
 import tarfile
-import pytest
-import pytest_asyncio
 from datetime import datetime
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-from src.utils.ws_cache_logger import archive_ws_cache_sync, archive_ws_cache
+import pytest
+
 from src.infrastructure.scheduler import SchedulerService
+from src.utils.file_cache import GatewayCacheLogger
 
 
 @pytest.fixture
@@ -20,7 +19,7 @@ def temp_ws_cache_dir(tmp_path):
     cache_dir = base_dir / chat_id / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Populate cache with various files (.json, .txt, .log) - all without exception
+    # Populate cache with various files (.json, .txt, .log)
     f1 = cache_dir / "20260828090001_101_WSLISTENER.json"
     f1.write_text('{"event": "ORDER_TRADE_UPDATE", "id": 101}', encoding="utf-8")
 
@@ -38,14 +37,20 @@ def temp_ws_cache_dir(tmp_path):
     }
 
 
-def test_archive_ws_cache_sync_creates_tar_gz_and_cleans_cache(temp_ws_cache_dir):
+@pytest.mark.asyncio
+async def test_gateway_archive_creates_tar_gz_and_cleans_cache(temp_ws_cache_dir):
     """Test that all files in cache/ are compressed to .tar.gz in backup_cache/YEAR/MONTH/DATE/ and cleaned up."""
     base_dir = temp_ws_cache_dir["base_dir"]
     chat_id = temp_ws_cache_dir["chat_id"]
     cache_dir = temp_ws_cache_dir["cache_dir"]
 
     ref_time = datetime(2026, 8, 28, 9, 7, 31)
-    results = archive_ws_cache_sync(base_path=base_dir, now=ref_time)
+    gateway_logger = GatewayCacheLogger(
+        gateway_name="binance",
+        ws_base_path=base_dir,
+        chat_id=chat_id,
+    )
+    results = await gateway_logger.archive(scope="ws", now=ref_time)
 
     assert len(results) == 1
     res = results[0]
@@ -79,24 +84,19 @@ def test_archive_ws_cache_sync_creates_tar_gz_and_cleans_cache(temp_ws_cache_dir
 
 
 @pytest.mark.asyncio
-async def test_archive_ws_cache_async_wrapper(temp_ws_cache_dir):
-    """Test async wrapper archive_ws_cache."""
-    base_dir = temp_ws_cache_dir["base_dir"]
-    ref_time = datetime(2026, 8, 28, 1, 0, 0)
-
-    results = await archive_ws_cache(base_path=base_dir, now=ref_time)
-    assert len(results) == 1
-    assert results[0]["archived_count"] == 3
-
-
-def test_archive_ws_cache_empty_directory_handled_gracefully(tmp_path):
+async def test_gateway_archive_empty_directory_handled_gracefully(tmp_path):
     """Test that empty cache folder produces no empty tar.gz archives."""
     base_dir = tmp_path / "wsbinance_empty"
     chat_id = "12345"
     cache_dir = base_dir / chat_id / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    results = archive_ws_cache_sync(base_path=str(base_dir))
+    gateway_logger = GatewayCacheLogger(
+        gateway_name="binance",
+        ws_base_path=str(base_dir),
+        chat_id=chat_id,
+    )
+    results = await gateway_logger.archive(scope="ws")
     assert len(results) == 0
 
     backup_dir = base_dir / chat_id / "backup_cache"
@@ -105,7 +105,7 @@ def test_archive_ws_cache_empty_directory_handled_gracefully(tmp_path):
 
 @pytest.mark.asyncio
 async def test_scheduler_run_archive_ws_cache_job(temp_ws_cache_dir):
-    """Test SchedulerService.run_archive_ws_cache_job execution."""
+    """Test SchedulerService.run_archive_ws_cache_job execution with GatewayCacheLogger."""
     base_dir = temp_ws_cache_dir["base_dir"]
 
     scheduler = SchedulerService(
