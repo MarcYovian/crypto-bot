@@ -1,178 +1,317 @@
-# 🤖 SMC CryptoBot – Semi-Automated Binance Futures Trading Platform
+# 🚀 SMC CryptoBot Backend
 
-[![Architecture](https://img.shields.io/badge/Architecture-Clean%20Architecture%20%2B%20Service%20Repository-blue.svg)](docs/V3/ARCHITECTURE.md)
-[![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20SQLAlchemy%20Async-009688.svg)](backend/)
-[![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript%20%2B%20TailwindCSS-61DAFB.svg)](frontend/)
-[![Database](https://img.shields.io/badge/Database-PostgreSQL%2016-336791.svg)](docs/V3/DATABASE.md)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-346%20Passed%20(100%25)-success.svg)](backend/tests/)
-
-Platform trading Binance Futures semi-otomatis berkinerja tinggi berbasis **Smart Money Concepts (SMC)** dan **Clean Architecture**. Sistem mengintegrasikan Telegram Signal Parser, Strict 2% Daily Risk Management, Real-Time Position Lifecycle State Machine, REST & WebSocket API, Central Nginx Gateway, serta Modern Web Dashboard UI.
+Backend API dan Trading Engine untuk **Binance Futures Semi-Automated Trading Bot** berbasis **Smart Money Concepts (SMC)**. Dibangun menggunakan **Python 3.12**, **FastAPI**, **SQLAlchemy AsyncORM**, **CCXT**, dan **python-telegram-bot** dengan arsitektur **Clean Architecture (DDD-inspired)** yang ketat.
 
 ---
 
-## 🌟 Fitur Utama Sistem
+## 📑 Daftar Isi
 
-### 1. 🧠 Core Trading Engine & Risk Management
-* **Strict 2.0% Risk Guard**: Kalkulasi lot size dinamis *real-time* saat eksekusi agar risiko kerugian maksimal per trade tidak pernah melebihi 2.0% dari saldo terkunci harian (00:00 WIB).
-* **Dynamic Leverage Downscaling**: Otomatis menyesuaikan leverage ke batas aman bracket notional Binance jika ukuran posisi melebihi tier exchange.
-* **Dual Execution Mode**: Eksekusi instan `MARKET` jika harga pasar berada dekat target sinyal ($\le 0.2\%$ toleransi), atau `LIMIT` jika harga pasar bergeser terlalu jauh.
-* **Real-time Position State Machine**:
-  * Menggeser Stop Loss ke **Break-Even (BEP)** secara otomatis saat **TP1 (50%)** tercapai.
-  * Mengaktifkan **Trailing Stop** (SL digeser ke level TP1) saat **TP2 (30%)** tercapai.
-  * Menutup seluruh order exchange pendukung dan menghitung realized PnL saat posisi **CLOSED** (`TP3`, `SL`, atau `MANUAL_CLOSE`).
-* **Emergency Circuit Breaker**: Menghentikan bot secara otomatis (*Auto-Pause*) jika akumulasi kerugian harian melampaui batas toleransi risiko modal.
-
-### 2. ⚡ Web Dashboard REST & WebSocket API
-* **FastAPI Lifespan Architecture**: Mengorkestrasi background runners (Telegram Poller, APScheduler 7 cron jobs, Binance User Stream) dan REST/WebSocket server secara terpadu.
-* **Real-Time WebSocket Event Broker (`/api/v1/ws`)**: Streaming instan pembaruan order fill, pergerakan PnL, notifikasi TP/SL hit, dan perubahan status bot ke antarmuka web.
-* **In-Memory Asynchronous Cache Layer**: Smart caching ber-TTL (10 detik s/d 30 menit) dengan mekanisme *write-through invalidation* saat mutasi data terjadi.
-* **JWT Security & Silent Token Refresh**: Autentikasi dengan isolasi memory token dan penanganan otorisasi Role-Based Access Control (`ADMIN` vs `VIEWER`).
-
-### 3. 🖥️ Web Dashboard UI (Pro-Trading Terminal)
-* **Cyber-Fintech Dark Aesthetics**: Desain bertaraf TradingView/Binance Dark Mode dengan glassmorphism depth dan tipografi monospaced untuk seluruh angka finansial.
-* **Executive Portfolio Analytics**: 6 KPI Summary Cards live dan grafik kurva pertumbuhan ekuitas (*TradingView Lightweight Charts*).
-* **1-Click Signal Execution Wizard**: Eksekusi sinyal manual berkecepatan tinggi ($< 2\text{s}$) dengan verifikasi proteksi risiko maksimal 2% dan validasi geometri harga.
-* **5-Level Trade Drilldown**: Inspeksi audit hierarki menyeluruh (*Overview*, *Risk Allocation*, *Order Lifecycle*, *Fill Executions*, *Financial Summary*).
-* **Command Center**: Tombol *Pause/Resume*, *Watchlist Manager*, *Risk Sandbox Simulator*, dan *2-Step Emergency Panic Close All*.
+- [Arsitektur Sistem](#-arsitektur-sistem)
+- [Fitur Utama](#-fitur-utama)
+- [Struktur Direktori](#-struktur-direktori)
+- [Persyaratan Sistem](#-persyaratan-sistem)
+- [Instalasi & Menjalankan Lokal (Native)](#-instalasi--menjalankan-lokal-native)
+- [Menjalankan dengan Docker](#-menjalankan-dengan-docker)
+- [Konfigurasi Lingkungan (.env)](#-konfigurasi-lingkungan-env)
+- [Database Migration (Alembic)](#-database-migration-alembic)
+- [Pengujian (Testing)](#-pengujian-testing)
+- [Dokumentasi API](#-dokumentasi-api)
+- [Keamanan & Best Practices](#-keamanan--best-practices)
 
 ---
 
-## 📁 Struktur Direktori Monorepo
+## 🏛️ Arsitektur Sistem
+
+Backend ini mengimplementasikan **Clean Architecture (Onion Architecture)** di mana setiap layer memiliki tanggung jawab yang terisolasi dengan aturan ketergantungan mengarah ke dalam (*Dependency Rule*):
+
+```
+                       ┌──────────────────────────────┐
+                       │      Presentation Layer      │
+                       │  • FastAPI REST API (14 Routers)
+                       │  • WebSocket Manager         │
+                       │  • Telegram Bot Controller   │
+                       └──────────────┬───────────────┘
+                                      │
+                       ┌──────────────▼───────────────┐
+                       │      Application Layer       │
+                       │  • Use Cases (54 use cases)  │
+                       │  • Domain Event Handlers     │
+                       │  • Command & Query DTOs      │
+                       └──────────────┬───────────────┘
+                                      │
+                       ┌──────────────▼───────────────┐
+                       │         Domain Layer         │
+                       │  • Aggregates (Trade, Order) │
+                       │  • Value Objects & Entities  │
+                       │  • Domain Services & Rules   │
+                       │  • Abstract Repository Ports │
+                       └──────────────▲───────────────┘
+                                      │
+                       ┌──────────────┴───────────────┐
+                       │     Infrastructure Layer     │
+                       │  • Persistence (SQLAlchemy)  │
+                       │  • Binance CCXT / CCXTPro    │
+                       │  • Telegram Gateway          │
+                       │  • APScheduler Background Job│
+                       │  • Native DI Container       │
+                       └──────────────────────────────┘
+```
+
+1. **Domain Layer (`src/domain/`)**: Inti logika bisnis murni (*Pure Python* tanpa dependensi eksternal). Berisi `TradeAggregate`, `TradeStateMachine`, `RiskCalculatorDomainService`, `SignalParserDomainService`, dan interface kontrak repository.
+2. **Application Layer (`src/application/`)**: Orkestrator alur kerja aplikasi (54 *Use Cases*) seperti `ExecuteSignalUseCase`, `HandleOrderFillUseCase`, `SyncPositionsUseCase`, dll.
+3. **Infrastructure Layer (`src/infrastructure/`)**: Implementasi detail teknis, database PostgreSQL/SQLite via Async SQLAlchemy, integrasi Binance REST & WebSocket, integrasi Telegram bot, scheduler, dan *Dependency Injection container*.
+4. **Presentation Layer (`src/presentation/`)**: Titik interaksi luar (14 Router FastAPI REST API, WebSocket stream endpoint, dan Telegram command/wizard listeners).
+
+---
+
+## ✨ Fitur Utama
+
+- **Dual-Mode Trading Engine**: Mendukung mode simulasi (*Paper Trading*) dan eksekusi riil (*Live Trading*) di Binance Futures Testnet/Mainnet.
+- **Bracket Order Management**: Otomatisasi penempatan limit/market entry, multi-target Take Profit (TP1, TP2, TP3), Stop Loss (SL), Break-Even Point (BEP), dan Trailing Stop.
+- **SMC Signal Parsing & Tracing**: Ekstraksi parameter sinyal Telegram (Pair, Side, Entry Zone, SL, TPs) dengan alokasi `trace_id` unik (`sig-{uuid8}`) untuk pelacakan end-to-end.
+- **Risk Calculator & Liquidation Guard**: Perhitungan ukuran posisi berbasis persentase risiko modal, batas risiko harian (*Daily Risk Budget*), penyesuaian leverage dinamis, dan estimasi harga likuidasi.
+- **Enkripsi Kredensial at-Rest**: Kredensial API Key & Secret Key exchange disimpan terenkripsi secara simetris menggunakan algoritma **Fernet (AES-128-CBC)**.
+- **Hot Credential Rotation**: Perubahan API key pada database langsung dimuat secara instan tanpa perlu restart server (*zero-downtime reconfiguration*).
+- **Rate Limiting Middleware**: Perlindungan anti-DoS & flooding berbasis IP menggunakan *sliding-window algorithm* dengan response standar `HTTP 429 Too Many Requests`.
+- **Automated APScheduler Jobs**:
+  - *Daily Risk Snapshot* (Pencatatan modal awal & budget risiko tiap tengah malam WIB)
+  - *Failsafe Position Sync* (Rekonsiliasi posisi terbuka database vs exchange tiap 15 menit)
+  - *Cleanup Orphan Orders* (Pembatalan order limit gantung yang kadaluarsa)
+  - *WebSocket Log Compression* (Kompresi log aktivitas websocket ke `.tar.gz`)
+- **Real-Time WebSocket Streaming**: Streaming pembaruan status order, fill event, dan notifikasi trade ke dashboard frontend.
+
+---
+
+## 📁 Struktur Direktori
 
 ```text
-crypto-bot/
-├── backend/                             # 🐍 PURE PYTHON BACKEND ENGINE
-│   ├── Dockerfile                       # Container definition backend
-│   ├── requirements.txt                 # Dependencies Python
-│   ├── alembic.ini                      # Konfigurasi migrasi database
-│   ├── .env.example                     # Template environment backend
-│   ├── main.py                          # Unified FastAPI Lifespan & Uvicorn entrypoint
-│   ├── config/                          # Central Pydantic Settings
-│   ├── src/
-│   │   ├── api/                         # FastAPI Routers, Deps, WS Manager, App Factory
-│   │   ├── clients/                     # CCXT Binance Futures & Telegram Clients
-│   │   ├── database/                    # SQLAlchemy Async Engine, Models, Alembic Migrations
-│   │   ├── repository/                  # Strict Repository Pattern (1 Model = 1 Repo)
-│   │   ├── services/                    # Domain Services (Trade, Risk, Telegram, Scheduler)
-│   │   └── utils/                       # Cache, Security, Precision, Error Parser
-│   └── tests/                           # 346 Unit, Service, API & E2E Tests (100% Passing)
-│
-├── frontend/                            # ⚛️ PURE REACT/TYPESCRIPT WEB DASHBOARD
-│   ├── Dockerfile                       # Multi-stage container build (Node 20 -> Nginx)
-│   ├── nginx.conf                       # SPA routing & reverse proxy
-│   ├── package.json                     # Dependencies npm (React 18, TanStack Query, Tailwind)
-│   ├── tsconfig.json                    # Strict TypeScript configuration
-│   ├── vite.config.ts                   # Vite bundler configuration
-│   ├── tailwind.config.js               # Pro-trading dark theme tokens
-│   ├── src/                             # Atomic components, feature modules, hooks, stores
-│   └── tests/                           # Vitest & React Testing Library suites
-│
-├── docker/                              # 🐳 DOCKER GATEWAY & CONFIGS
-│   └── nginx/
-│       └── nginx.conf                   # Central Reverse Proxy Gateway (Port 80)
-│
-├── docs/                                # 📚 SYSTEM SPECIFICATIONS & PRD
-│   ├── V3/                              # Backend V3 Clean Architecture Specifications
-│   ├── frontend/                        # Frontend UI Docs (PRD, REQUIREMENTS, FEATURES, USER_FLOW, DESIGN)
-│   ├── openapi.yaml                     # OpenAPI 3.1.0 Specification Contract
-│   └── SCHEMA.md                        # Database Schema DDL Reference
-│
-├── tasks/                               # 📋 IMPLEMENTATION ROADMAPS & BACKLOGS
-│   ├── web_dashboard_api/               # Tasks 01-11 Backend API (100% Completed)
-│   └── frontend/                        # Tasks 01-13 Frontend UI (Ready to Execute)
-│
-├── docker-compose.yml                   # Master Multi-Container Orchestrator
-└── README.md                            # Main Documentation Entrypoint
+backend/
+├── config/
+│   └── settings.py          # Konfigurasi Pydantic Settings & environment validator
+├── src/
+│   ├── domain/              # Pure Domain (Aggregates, Entities, Value Objects, Ports)
+│   │   ├── aggregates/      # TradeAggregate, OrderAggregate, TradeStateMachine
+│   │   ├── entities/        # Trade, ParsedSignalDTO, Risk DTOs
+│   │   ├── events/          # Domain Events
+│   │   ├── exceptions/      # Domain-specific Exceptions
+│   │   ├── ports/           # Abstract Gateway & Repository Interfaces
+│   │   ├── services/        # RiskCalculator, SignalParser, PrecisionFilter
+│   │   └── value_objects/   # Price, Quantity, OrderSide, TradeStatus, dll.
+│   ├── application/         # Use Cases & Event Handlers
+│   │   ├── use_cases/       # 54 Use Cases terbagi dalam 14 domain area
+│   │   └── event_handlers/  # Handler event notifikasi Telegram
+│   ├── infrastructure/      # Concrete Adapters & Persistence
+│   │   ├── container.py     # Native Dependency Injection Container
+│   │   ├── bootstrap.py     # System startup initializer & credential warm-up
+│   │   ├── gateways/        # Binance (CCXT) & Telegram Bot Adapters
+│   │   ├── persistence/     # SQLAlchemy ORM Models, Repositories, & Migrations
+│   │   └── scheduler/       # APScheduler Recurring Background Jobs
+│   ├── presentation/        # Delivery Mechanisms
+│   │   ├── api/             # FastAPI App Factory, Routers, Middleware, & Schemas
+│   │   ├── telegram/        # Telegram Controller & Interactive Setup Wizard
+│   │   └── websocket/       # WebSocket Connection & Broadcast Manager
+│   └── utils/               # Helpers (Fernet Security, Async Cache, Logger)
+├── tests/                   # Test Suite (474 Unit, Integration, & E2E Tests)
+├── main.py                  # Application Entrypoint & Lifespan Hooks
+├── alembic.ini              # Konfigurasi database migration
+├── pytest.ini               # Konfigurasi test runner
+├── requirements.txt         # Daftar dependensi Python
+└── .env.example             # Template konfigurasi environment
 ```
 
 ---
 
-## 🚀 Panduan Menjalankan Sistem (Docker Compose)
+## 💻 Persyaratan Sistem
 
-### 1. Prasyarat Sistem
-* [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/) v2.0+
-
-### 2. Setup Environment Variables
-Salin template environment di folder `backend/`:
-```bash
-cp backend/.env.example backend/.env
-```
-
-Sesuaikan variabel di `backend/.env`:
-```env
-# Telegram Bot Notifications
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
-
-# Database Configuration (PostgreSQL Docker)
-DATABASE_URL=postgresql+asyncpg://cryptobot:cryptobot_pass@postgres:5432/cryptobot_db
-
-# Security & JWT Authentication
-JWT_SECRET_KEY=generate_a_secure_random_key_here
-DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=AdminPassword123!
-```
-
-> **Catatan Kredensial Binance**: Kredensial API Key Binance tidak disimpan dalam file `.env` melainkan dienkripsi aman di dalam database (`trading_credentials` table) dan dapat dikonfigurasi / dirotasi secara dinamis melalui Web Dashboard UI (`/settings`) atau wizard Telegram (`/setup_account`).
+- **Python**: Versi `3.12+`
+- **Database**: PostgreSQL `14+` (Produksi) atau SQLite (Pengujian lokal)
+- **Akun Binance**: Akun Binance Futures (Testnet / Live API Key)
+- **Telegram Bot**: Token bot dari `@BotFather` dan ID Chat dari `@userinfobot`
 
 ---
 
-### 3. Menjalankan Seluruh Service
-Jalankan seluruh stack container (**PostgreSQL 16 + Backend API + Frontend UI + Nginx Gateway**) hanya dengan satu perintah:
+## 🚀 Instalasi & Menjalankan Lokal (Native)
+
+### 1. Clone & Masuk ke Direktori Backend
 
 ```bash
-docker compose up --build -d
+cd backend
 ```
 
----
+### 2. Buat & Aktifkan Virtual Environment
 
-### 4. Mengakses Layanan Sistem
-
-| Layanan | URL Akses | Keterangan |
-| :--- | :--- | :--- |
-| **🌐 Web Dashboard UI** | [http://localhost](http://localhost) (atau `http://localhost:3000`) | Antarmuka Visual Trading Terminal |
-| **⚡ REST API & Swagger UI** | [http://localhost/docs](http://localhost/docs) (atau `http://localhost:8000/docs`) | Dokumentasi Interaktif OpenAPI |
-| **📡 WebSocket Stream** | `ws://localhost/ws` (atau `ws://localhost:8000/api/v1/ws`) | Live Data Event Stream |
-| **🐘 PostgreSQL Database** | `localhost:5432` (`db: cryptobot_db`, `user: cryptobot`) | Relational Database Storage |
-
----
-
-## 🧪 Menjalankan Test Suite
-
-### 1. Menjalankan Backend Tests (346 Tests)
 ```bash
-docker exec -it crypto_bot_app pytest tests/ -v
+python3 -m venv venv
+source venv/bin/activate
 ```
 
-### 2. Menjalankan Static Type Checking (Mypy)
+### 3. Instal Dependensi
+
 ```bash
-docker exec -it crypto_bot_app mypy --explicit-package-bases --ignore-missing-imports src/ main.py
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-### 3. Menjalankan Database Migrations (Alembic)
+### 4. Setup Environment Variables
+
+Salin template konfigurasi dan sesuaikan nilainya:
+
 ```bash
-docker exec -it crypto_bot_app alembic upgrade head
+cp .env.example .env
+```
+
+### 5. Jalankan Database Migration
+
+```bash
+alembic upgrade head
+```
+
+### 6. Jalankan Server API
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Aplikasi akan berjalan di `http://127.0.0.1:8000`.
+
+---
+
+## 🐳 Menjalankan dengan Docker
+
+Proyek ini telah dikonfigurasi menggunakan Docker Compose untuk orchestrasi multi-service yang mudah.
+
+### Skenario A: Menjalankan Seluruh Stack (Full System)
+
+Untuk menjalankan seluruh service (**Database PostgreSQL + Backend Trading Bot + Frontend Dashboard + Nginx Gateway**):
+
+```bash
+# Dari root direktori proyek:
+docker compose up -d --build
+```
+
+- **Gateway URL**: [http://localhost](http://localhost) (Port 80)
+- **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **Backend API Direct**: [http://localhost:8002](http://localhost:8002) (Docs: [http://localhost:8002/docs](http://localhost:8002/docs))
+- **PostgreSQL Database**: `localhost:5433`
+
+### Skenario B: Menjalankan Hanya Backend & Database (Tanpa Frontend)
+
+Jika Anda hanya ingin mengembangkan atau menjalankan backend engine dan database:
+
+```bash
+# Dari root direktori:
+docker compose up -d postgres crypto-bot
+```
+
+### Skenario C: Menjalankan Standalone Backend Container
+
+Jika Anda ingin menjalankan container image backend murni dan mengarahkannya ke database eksternal:
+
+```bash
+# 1. Masuk ke folder backend
+cd backend
+
+# 2. Build image
+docker build -t crypto-bot-backend .
+
+# 3. Jalankan container
+docker run -d \
+  --name crypto_bot_app \
+  -p 8000:8000 \
+  --env-file .env \
+  crypto-bot-backend
+```
+
+### Perintah Berguna Docker:
+
+```bash
+# Melihat log real-time backend
+docker compose logs -f crypto-bot
+
+# Menjalankan migrasi database di dalam container
+docker compose exec crypto-bot alembic upgrade head
+
+# Menjalankan automated test suite di dalam container
+docker compose exec crypto-bot pytest -n auto
+
+# Masuk ke shell container backend
+docker compose exec crypto-bot bash
+
+# Menghentikan container
+docker compose down
 ```
 
 ---
 
-## 📚 Indeks Dokumentasi Sistem
+## ⚙️ Konfigurasi Lingkungan (.env)
 
-* **Spesifikasi Backend V3**:
-  * [Product Requirements Document (docs/V3/PRD.md)](docs/V3/PRD.md)
-  * [Clean Architecture Overview (docs/V3/ARCHITECTURE.md)](docs/V3/ARCHITECTURE.md)
-  * [Business Rules & Risk Sizing (docs/V3/BUSINESS_RULES.md)](docs/V3/BUSINESS_RULES.md)
-  * [Database Design & Relations (docs/V3/DATABASE.md)](docs/V3/DATABASE.md)
-* **Spesifikasi Frontend Web Dashboard**:
-  * [Product Requirements Document (docs/frontend/PRD.md)](docs/frontend/PRD.md)
-  * [Software Requirements Specification (docs/frontend/REQUIREMENTS.md)](docs/frontend/REQUIREMENTS.md)
-  * [Feature Specifications & User Stories (docs/frontend/FEATURES.md)](docs/frontend/FEATURES.md)
-  * [User Flow & Interaction Diagrams (docs/frontend/USER_FLOW.md)](docs/frontend/USER_FLOW.md)
-  * [Design System & Color Tokens (docs/frontend/DESIGN.md)](docs/frontend/DESIGN.md)
-* **API Contract**:
-  * [OpenAPI 3.1.0 Specification (docs/openapi.yaml)](docs/openapi.yaml)
+| Variabel | Deskripsi | Default / Contoh |
+|---|---|---|
+| `ENVIRONMENT` | Mode lingkungan (`development`, `staging`, `production`) | `development` |
+| `DATABASE_URL` | Koneksi database SQLAlchemy async | `postgresql+asyncpg://user:pass@localhost:5432/cryptobot_db` |
+| `JWT_SECRET_KEY` | Kunci rahasia JWT & enkripsi Fernet (Wajib diisi kuat di production) | `dev-secret-jwt-key-...` |
+| `DEFAULT_ADMIN_USERNAME`| Username akun admin bawaan sistem | `admin` |
+| `DEFAULT_ADMIN_PASSWORD`| Password akun admin bawaan (Wajib diganti di production) | `AdminPassword123!` |
+| `CORS_ORIGINS` | Daftar domain frontend yang diizinkan (Comma-separated) | `http://localhost:3000,http://127.0.0.1:3000` |
+| `RATE_LIMIT_ENABLED` | Mengaktifkan middleware pembatas laju request | `true` |
+| `RATE_LIMIT_PER_MINUTE`| Batas maksimal request per IP per menit | `120` |
+| `TELEGRAM_BOT_TOKEN` | Token API bot Telegram dari BotFather | `123456:ABC-DEF...` |
+| `TELEGRAM_CHAT_ID` | ID chat Telegram penerima alert | `123456789` |
+| `DEFAULT_LEVERAGE` | Default leverage futures | `20` |
+| `CONFIDENCE_THRESHOLD`| Ambang batas auto-execute sinyal (0.70 = 70%) | `0.70` |
+| `LOG_LEVEL` | Level logging aplikasi (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` |
 
 ---
 
-## 📄 Lisensi
-Hak Cipta © 2026 SMC CryptoBot. Seluruh hak cipta dilindungi undang-undang.
+## 🗄️ Database Migration (Alembic)
+
+Kelola skema database menggunakan Alembic:
+
+```bash
+# Membuat migration baru otomatis berdasarkan perubahan ORM model
+alembic revision --autogenerate -m "deskripsi_perubahan"
+
+# Menjalankan migrasi ke versi terbaru
+alembic upgrade head
+
+# Rollback migrasi 1 langkah ke belakang
+alembic downgrade -1
+```
+
+---
+
+## 🧪 Pengujian (Testing)
+
+Backend dilengkapi dengan **474 automated test cases** yang mencakup pengujian unit, integrasi domain, repositori, API endpoint, dan skenario edge-case:
+
+```bash
+# Menjalankan seluruh test suite secara paralel
+pytest -n auto
+
+# Menjalankan test dengan laporan code coverage
+pytest --cov=src --cov-report=term-missing
+
+# Menjalankan grup pengujian spesifik
+pytest tests/domain/           # Domain Layer (Aggregates, Value Objects, Events)
+pytest tests/api/              # REST API & Middleware (Rate Limiter, Auth, CORS)
+pytest tests/repository/       # SQLAlchemy Async Repositories
+```
+
+---
+
+## 📖 Dokumentasi API
+
+Saat backend berjalan, dokumentasi interaktif OpenAPI dapat diakses secara langsung:
+
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **OpenAPI JSON**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+- **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
+
+---
+
+## 🛡️ Keamanan & Best Practices
+
+1. **Aturan Produksi Ketat**: Pengaturan `ENVIRONMENT=production` otomatis memvalidasi bahwa `JWT_SECRET_KEY` dan `DEFAULT_ADMIN_PASSWORD` bukan default development, serta melarang wildcard `*` pada `CORS_ORIGINS`.
+2. **Kredensial Terenkripsi**: Jangan pernah mengekspos API secret exchange dalam bentuk teks terbuka. Kunci didekripsi hanya di memori saat melakukan warm-up gateway.
+3. **Database Cascade & Invariant**: Relasi tabel `trades`, `orders`, `executions`, dan `events` dilindungi dengan *foreign key cascades* dan *CheckConstraints* database yang selaras dengan domain state machine.
