@@ -25,7 +25,7 @@ from src.application.use_cases.logs.purge_old_logs_use_case import PurgeOldLogsU
 from src.application.use_cases.reports.send_daily_performance_report_use_case import SendDailyPerformanceReportUseCase
 from src.application.use_cases.bot.check_system_heartbeat_use_case import CheckSystemHeartbeatUseCase
 from src.infrastructure.scheduler.task_registry import calculate_next_fire_time
-from src.utils.ws_cache_logger import archive_ws_cache
+from src.utils.file_cache import GatewayCacheLogger
 
 
 logger = logging.getLogger(__name__)
@@ -307,12 +307,17 @@ class SchedulerJobs:
     async def run_archive_ws_cache_job(
         self, base_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Archive all incoming WebSocket cache log files into date-partitioned .tar.gz archives."""
+        """Archive all incoming WebSocket and REST cache log files into date-partitioned .tar.gz archives."""
         try:
-            results = await archive_ws_cache(base_path=base_path)
+            gateway_logger = GatewayCacheLogger(
+                gateway_name="binance",
+                ws_base_path=base_path,
+                rest_base_path=base_path,
+            )
+            results = await gateway_logger.archive(scope="all" if base_path is None else "ws")
             total_archived = sum(r.get("archived_count", 0) for r in results)
             logger.info(
-                "Daily WebSocket cache archive job completed: %d files archived across %d accounts.",
+                "Daily cache archive job completed: %d files archived across %d entries (WS & REST).",
                 total_archived,
                 len(results),
             )
