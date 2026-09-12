@@ -1,11 +1,11 @@
 # Database Schema Documentation
 
-> **Auto-generated from:** `backend/src/database/models/`
-> **Last Updated:** 2026-08-28
+> **Auto-generated from:** `src/infrastructure/persistence/models/`
+> **Last Updated:** 2026-09-12
 > **ORM:** SQLAlchemy 2.0 (Mapped Column style)
 > **Supported Dialects:** PostgreSQL (primary), SQLite (fallback development)
 
-Dokumentasi ini menjelaskan seluruh schema database yang digunakan oleh **Semi-Automated Binance Futures Trading Bot**. Schema terdiri dari **19 tabel** yang dikelompokkan ke dalam 6 domain fungsional.
+Dokumentasi ini menjelaskan seluruh schema database yang digunakan oleh **Semi-Automated Binance Futures Trading Bot**. Schema terdiri dari **22 tabel** yang dikelompokkan ke dalam 7 domain fungsional.
 
 ---
 
@@ -42,6 +42,9 @@ Dokumentasi ini menjelaskan seluruh schema database yang digunakan oleh **Semi-A
     - [users](#18-users)
     - [bot_settings](#19-bot_settings)
     - [bot_logs](#20-bot_logs)
+  - [Domain: Task Scheduling & Background Jobs](#domain-task-scheduling--background-jobs)
+    - [scheduler_tasks](#21-scheduler_tasks)
+    - [scheduler_task_runs](#22-scheduler_task_runs)
 - [Enum & Check Constraint Reference](#enum--check-constraint-reference)
 - [Index Reference](#index-reference)
 
@@ -328,6 +331,33 @@ erDiagram
         string context_json
         datetime created_at
     }
+
+    scheduler_tasks ||--o{ scheduler_task_runs : "logs"
+
+    scheduler_tasks {
+        string id PK
+        string name
+        string cron_expr
+        string timezone
+        bool is_active
+        string misfire_policy
+        datetime last_run_at
+        datetime next_run_at
+        string last_status
+        datetime created_at
+        datetime updated_at
+    }
+
+    scheduler_task_runs {
+        int id PK
+        string task_id FK
+        string status
+        datetime started_at
+        datetime finished_at
+        int duration_ms
+        string error_message
+        datetime created_at
+    }
 ```
 
 ### Simplified Domain Grouping
@@ -372,6 +402,11 @@ graph TD
         BL[bot_logs]
     end
 
+    subgraph "Task Scheduling"
+        ST[scheduler_tasks]
+        STRUN[scheduler_task_runs]
+    end
+
     EX --> TA --> TC
     EX --> INS --> ILB
     INS --> WL
@@ -389,6 +424,7 @@ graph TD
     TRADE --> EXEC
     TRADE --> TE
     TRADE --> TSUM
+    ST --> STRUN
 ```
 
 ---
@@ -417,6 +453,8 @@ graph TD
 | 18 | `users` | `id` (auto) | Akun user untuk dashboard web dan otorisasi | 0 | — |
 | 19 | `bot_settings` | `key` (natural) | Key-value store untuk konfigurasi bot persisten | 0 | — |
 | 20 | `bot_logs` | `id` (auto) | Log aplikasi yang disimpan ke database | 0 | — |
+| 21 | `scheduler_tasks` | `id` (natural) | Konfigurasi cron scheduler dan runtime task state | 0 | scheduler_task_runs |
+| 22 | `scheduler_task_runs` | `id` (auto) | Audit log riwayat eksekusi task scheduler | 1 | — |
 
 ---
 
@@ -432,7 +470,7 @@ Mengelola koneksi ke crypto exchange, akun trading, dan kredensial API terenkrip
 
 Platform exchange crypto yang didukung oleh sistem. Setiap exchange bisa memiliki banyak akun trading dan instrumen.
 
-**Source:** [`src/database/models/exchange.py`](../src/database/models/exchange.py)
+**Source:** [`src/infrastructure/persistence/models/exchange.py`](../../src/infrastructure/persistence/models/exchange.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -458,7 +496,7 @@ Platform exchange crypto yang didukung oleh sistem. Setiap exchange bisa memilik
 
 Akun trading yang terhubung ke suatu exchange. Satu exchange bisa memiliki banyak akun (misalnya akun Testnet dan Mainnet terpisah). Setiap akun bisa memiliki banyak kredensial API (rotasi key).
 
-**Source:** [`src/database/models/trading_accounts.py`](../src/database/models/trading_accounts.py)
+**Source:** [`src/infrastructure/persistence/models/trading_accounts.py`](../../src/infrastructure/persistence/models/trading_accounts.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -487,7 +525,7 @@ Akun trading yang terhubung ke suatu exchange. Satu exchange bisa memiliki banya
 
 Kredensial API terenkripsi untuk mengakses exchange. Mendukung key rotation — satu akun bisa memiliki banyak credential dengan `key_version` yang berbeda, dan hanya yang `is_active = TRUE` yang digunakan.
 
-**Source:** [`src/database/models/trading_credentials.py`](../src/database/models/trading_credentials.py)
+**Source:** [`src/infrastructure/persistence/models/trading_credentials.py`](../../src/infrastructure/persistence/models/trading_credentials.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -523,7 +561,7 @@ Menyimpan informasi simbol trading, spesifikasi presisi dari exchange, tiered le
 
 Detail simbol trading dan pengaturan presisi numerik dari exchange. Data ini disinkronisasi secara periodik dari API exchange (Binance `exchangeInfo`). Semua kalkulasi risk, order sizing, dan price rounding merujuk ke tabel ini.
 
-**Source:** [`src/database/models/instruments.py`](../src/database/models/instruments.py)
+**Source:** [`src/infrastructure/persistence/models/instruments.py`](../../src/infrastructure/persistence/models/instruments.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -562,7 +600,7 @@ Detail simbol trading dan pengaturan presisi numerik dari exchange. Data ini dis
 
 Tiered leverage dan batas notional posisi per instrumen dari exchange. Binance menerapkan sistem bracket — semakin besar posisi notional, semakin kecil leverage maksimum yang diizinkan. Data ini disinkronisasi dari endpoint `leverageBrackets` Binance.
 
-**Source:** [`src/database/models/instrument_leverage_brackets.py`](../src/database/models/instrument_leverage_brackets.py)
+**Source:** [`src/infrastructure/persistence/models/instrument_leverage_brackets.py`](../../src/infrastructure/persistence/models/instrument_leverage_brackets.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -595,7 +633,7 @@ Tiered leverage dan batas notional posisi per instrumen dari exchange. Binance m
 
 Daftar instrumen yang diizinkan untuk trading aktif (whitelist). Hanya instrumen yang ada di watchlist dengan `enabled = TRUE` yang bisa menerima sinyal dan membuka posisi baru. Berfungsi sebagai filter keamanan untuk mencegah trading pada pair yang tidak diinginkan.
 
-**Source:** [`src/database/models/watchlists.py`](../src/database/models/watchlists.py)
+**Source:** [`src/infrastructure/persistence/models/watchlists.py`](../../src/infrastructure/persistence/models/watchlists.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -631,7 +669,7 @@ Menyimpan sumber sinyal trading, konfigurasi strategi, dan record sinyal trading
 
 Sumber sinyal trading yang mengirim rekomendasi entry/exit ke bot. Bisa berupa Telegram channel, webhook dari TradingView, atau generator sinyal internal.
 
-**Source:** [`src/database/models/signal_providers.py`](../src/database/models/signal_providers.py)
+**Source:** [`src/infrastructure/persistence/models/signal_providers.py`](../../src/infrastructure/persistence/models/signal_providers.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -653,7 +691,7 @@ Sumber sinyal trading yang mengirim rekomendasi entry/exit ke bot. Bisa berupa T
 
 Konfigurasi dan metadata strategi trading. Setiap trade bisa diasosiasikan dengan strategi tertentu untuk pelacakan performa per strategi.
 
-**Source:** [`src/database/models/strategies.py`](../src/database/models/strategies.py)
+**Source:** [`src/infrastructure/persistence/models/strategies.py`](../../src/infrastructure/persistence/models/strategies.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -680,7 +718,7 @@ Konfigurasi dan metadata strategi trading. Setiap trade bisa diasosiasikan denga
 
 Sinyal trading yang diterima dari provider eksternal. Merekam seluruh lifecycle sinyal dari `RECEIVED` → `EXECUTED` atau `REJECTED`. Mendukung mekanisme konfirmasi manual untuk sinyal dengan confidence rendah.
 
-**Source:** [`src/database/models/trading_signals.py`](../src/database/models/trading_signals.py)
+**Source:** [`src/infrastructure/persistence/models/trading_signals.py`](../../src/infrastructure/persistence/models/trading_signals.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -730,7 +768,7 @@ Mengelola profil risiko, snapshot saldo harian, dan detail kalkulasi risiko per-
 
 Profil manajemen risiko yang mendefinisikan parameter risk management. Bisa dibuat beberapa profil (LOW_RISK, MODERATE, AGGRESSIVE) dan diaktifkan sesuai kondisi pasar.
 
-**Source:** [`src/database/models/risk_profiles.py`](../src/database/models/risk_profiles.py)
+**Source:** [`src/infrastructure/persistence/models/risk_profiles.py`](../../src/infrastructure/persistence/models/risk_profiles.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -755,7 +793,7 @@ Profil manajemen risiko yang mendefinisikan parameter risk management. Bisa dibu
 
 Snapshot saldo harian dan budget risiko per-trade. Dibuat secara otomatis oleh `SchedulerService` setiap hari (cron job), atau secara manual saat diperlukan. Menjadi basis perhitungan risk amount untuk setiap trade yang dibuka pada hari tersebut.
 
-**Source:** [`src/database/models/daily_risk_configs.py`](../src/database/models/daily_risk_configs.py)
+**Source:** [`src/infrastructure/persistence/models/daily_risk_configs.py`](../../src/infrastructure/persistence/models/daily_risk_configs.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -765,6 +803,7 @@ Snapshot saldo harian dan budget risiko per-trade. Dibuat secara otomatis oleh `
 | `date` | `Date` | ❌ | — | **UNIQUE** (bersama `account_id`) | Tanggal snapshot. Satu akun hanya boleh memiliki satu snapshot per hari. |
 | `balance` | `Numeric(18,8)` | ❌ | — | — | Total saldo akun (equity) pada saat snapshot. Diambil dari API exchange. |
 | `risk_amount` | `Numeric(18,8)` | ❌ | — | — | Jumlah risiko yang sudah dikalkulasi (`balance × risk_percent / 100`). Ini adalah budget risiko per-trade untuk hari ini. |
+| `daily_risk_amount` | `Numeric(18,8)` | ❌ | `0` | — | Nominal risiko harian maksimum yang diizinkan untuk dikonsumsi (Daily Max Loss Budget). Digunakan oleh Circuit Breaker untuk memantau akumulasi kerugian harian. |
 | `created_at` | `DateTime` | ❌ | `CURRENT_TIMESTAMP` | — | Timestamp snapshot dibuat. |
 
 **Relationships:**
@@ -790,7 +829,7 @@ Snapshot saldo harian dan budget risiko per-trade. Dibuat secara otomatis oleh `
 
 Detail kalkulasi risiko yang melekat pada suatu trade. Merekam snapshot parameter risiko pada saat trade dibuka — entry price, stop-loss, stop distance, qty, margin, dan leverage yang digunakan.
 
-**Source:** [`src/database/models/trade_risks.py`](../src/database/models/trade_risks.py)
+**Source:** [`src/infrastructure/persistence/models/trade_risks.py`](../../src/infrastructure/persistence/models/trade_risks.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -826,7 +865,7 @@ Domain inti yang merekam seluruh lifecycle posisi trading — dari pembukaan hin
 
 Record utama posisi trading. Merepresentasikan satu posisi dari lifecycle `WAITING_ENTRY` → `OPEN` → `PARTIAL` → `CLOSED` atau `CANCELLED`. Menjadi aggregate root untuk orders, executions, events, dan summary.
 
-**Source:** [`src/database/models/trades.py`](../src/database/models/trades.py)
+**Source:** [`src/infrastructure/persistence/models/trades.py`](../../src/infrastructure/persistence/models/trades.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -881,7 +920,7 @@ Record utama posisi trading. Merepresentasikan satu posisi dari lifecycle `WAITI
 
 Order yang dikirim ke exchange sebagai bagian dari suatu trade. Setiap trade memiliki minimal 1 order (entry) dan bisa memiliki hingga 5+ order (entry + SL + TP1 + TP2 + TP3 + BEP/trailing adjustments).
 
-**Source:** [`src/database/models/orders.py`](../src/database/models/orders.py)
+**Source:** [`src/infrastructure/persistence/models/orders.py`](../../src/infrastructure/persistence/models/orders.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -922,7 +961,7 @@ Order yang dikirim ke exchange sebagai bagian dari suatu trade. Setiap trade mem
 
 Record fill (eksekusi) individual dari order di exchange. Satu order bisa memiliki beberapa execution jika ter-fill secara partial. Merekam harga fill aktual, kuantitas, komisi, dan realized PnL.
 
-**Source:** [`src/database/models/executions.py`](../src/database/models/executions.py)
+**Source:** [`src/infrastructure/persistence/models/executions.py`](../../src/infrastructure/persistence/models/executions.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -954,7 +993,7 @@ Record fill (eksekusi) individual dari order di exchange. Satu order bisa memili
 
 Audit log event lifecycle suatu trade. Merekam setiap event penting yang terjadi selama lifecycle posisi — dari entry fill, TP hit, SL adjustment, sampai penutupan.
 
-**Source:** [`src/database/models/trade_events.py`](../src/database/models/trade_events.py)
+**Source:** [`src/infrastructure/persistence/models/trade_events.py`](../../src/infrastructure/persistence/models/trade_events.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -979,7 +1018,7 @@ Audit log event lifecycle suatu trade. Merekam setiap event penting yang terjadi
 
 Ringkasan performa yang dihitung saat trade ditutup. Berisi metrik PnL, ROI, risk-reward, durasi, dan alasan penutupan. Dibuat secara atomik oleh `PositionManager` saat semua kuantitas posisi habis.
 
-**Source:** [`src/database/models/trade_summaries.py`](../src/database/models/trade_summaries.py)
+**Source:** [`src/infrastructure/persistence/models/trade_summaries.py`](../../src/infrastructure/persistence/models/trade_summaries.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -1015,7 +1054,7 @@ Tabel untuk manajemen user, konfigurasi bot, dan logging.
 
 Akun user untuk autentikasi web dashboard dan otorisasi berbasis role. Mendukung JWT-based authentication dengan access token dan refresh token.
 
-**Source:** [`src/database/models/users.py`](../src/database/models/users.py)
+**Source:** [`src/infrastructure/persistence/models/users.py`](../../src/infrastructure/persistence/models/users.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -1035,7 +1074,7 @@ Akun user untuk autentikasi web dashboard dan otorisasi berbasis role. Mendukung
 
 Key-value store untuk konfigurasi bot yang persisten di database. Memungkinkan perubahan konfigurasi tanpa restart aplikasi. Diakses via Telegram bot commands dan web dashboard.
 
-**Source:** [`src/database/models/bot_settings.py`](../src/database/models/bot_settings.py)
+**Source:** [`src/infrastructure/persistence/models/bot_settings.py`](../../src/infrastructure/persistence/models/bot_settings.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -1059,7 +1098,7 @@ Key-value store untuk konfigurasi bot yang persisten di database. Memungkinkan p
 
 Log aplikasi yang disimpan ke database untuk monitoring dan debugging via web dashboard. Melengkapi file-based logging (`bot.log`) dengan kemampuan query terstruktur.
 
-**Source:** [`src/database/models/bot_logs.py`](../src/database/models/bot_logs.py)
+**Source:** [`src/infrastructure/persistence/models/bot_logs.py`](../../src/infrastructure/persistence/models/bot_logs.py)
 
 | Column | Type | Nullable | Default | Constraint | Deskripsi |
 |:-------|:-----|:--------:|:-------:|:-----------|:----------|
@@ -1076,6 +1115,70 @@ Log aplikasi yang disimpan ke database untuk monitoring dan debugging via web da
 | `idx_bot_logs_level` | `level` | Filter log berdasarkan severity. |
 | `idx_bot_logs_module` | `module` | Filter log berdasarkan modul/komponen. |
 | `idx_bot_logs_level_created` | `level`, `created_at` | Query log per level secara kronologis (compound). |
+
+---
+
+### Domain: Task Scheduling & Background Jobs
+
+Mengelola konfigurasi penjadwalan berkala (*database-driven cron jobs*), state runtime task, dan audit log riwayat eksekusi task background bot (seperti snapshot risk harian, failsafe position sync, orphan order cleanup, dan log compression).
+
+---
+
+#### 21. `scheduler_tasks`
+
+Entitas database yang mendefinisikan task scheduler berulang, ekspresi cron-nya, status aktif, misfire policy, dan timestamp eksekusi berikutnya.
+
+**Source:** [`src/infrastructure/persistence/models/scheduler_tasks.py`](../../src/infrastructure/persistence/models/scheduler_tasks.py)
+
+| Column | Type | Nullable | Default | Constraint | Deskripsi |
+|:-------|:-----|:--------:|:-------:|:-----------|:----------|
+| `id` | `String(50)` | ❌ | — | **PK** | Identifier unik task (contoh: `daily_risk_snapshot`, `failsafe_position_sync`). |
+| `name` | `String(100)` | ❌ | — | — | Nama deskriptif yang mudah dibaca untuk task scheduler. |
+| `cron_expr` | `String(50)` | ❌ | — | — | Standar ekspresi cron 5/6 bagian (contoh: `0 0 * * *`, `*/15 * * * *`). |
+| `timezone` | `String(50)` | ❌ | `Asia/Jakarta` | — | Timezone evaluasi jadwal cron. |
+| `is_active` | `Boolean` | ❌ | `TRUE` | — | Flag apakah scheduler aktif mengeksekusi task ini. |
+| `misfire_policy` | `String(30)` | ❌ | `RUN_LATEST_ONCE` | — | Kebijakan saat task tertinggal (`RUN_LATEST_ONCE`, `RUN_ALL`, `SKIP`). |
+| `last_run_at` | `DateTime` | ✅ | `NULL` | — | Timestamp kapan task terakhir kali dijalankan. |
+| `next_run_at` | `DateTime` | ❌ | — | — | Timestamp jadwal eksekusi berikutnya (dihitung dari `cron_expr`). |
+| `last_status` | `String(20)` | ❌ | `IDLE` | — | Status terakhir eksekusi task (`IDLE`, `RUNNING`, `SUCCESS`, `FAILED`). |
+| `created_at` | `DateTime` | ❌ | `CURRENT_TIMESTAMP` | — | Timestamp pembuatan konfigurasi task. |
+| `updated_at` | `DateTime` | ❌ | `CURRENT_TIMESTAMP` | Auto-update on change | Timestamp perubahan konfigurasi task. |
+
+**Relationships:**
+- `runs` → **One-to-Many** ke `scheduler_task_runs` (cascade: all, delete-orphan)
+
+**Indexes:**
+| Nama Index | Kolom | Tujuan |
+|:-----------|:------|:-------|
+| `idx_scheduler_next_run` | `is_active`, `next_run_at` | Query cepat task jatuh tempo yang aktif. |
+
+---
+
+#### 22. `scheduler_task_runs`
+
+Catatan riwayat audit eksekusi setiap kali task scheduler dijalankan.
+
+**Source:** [`src/infrastructure/persistence/models/scheduler_tasks.py`](../../src/infrastructure/persistence/models/scheduler_tasks.py)
+
+| Column | Type | Nullable | Default | Constraint | Deskripsi |
+|:-------|:-----|:--------:|:-------:|:-----------|:----------|
+| `id` | `Integer` | ❌ | Auto-increment | **PK** | Primary key auto-increment. |
+| `task_id` | `String(50)` | ❌ | — | **FK** → `scheduler_tasks.id` (ON DELETE CASCADE) | ID task parent yang dieksekusi. |
+| `status` | `String(20)` | ❌ | `RUNNING` | — | Status eksekusi run (`RUNNING`, `SUCCESS`, `FAILED`). |
+| `started_at` | `DateTime` | ❌ | `CURRENT_TIMESTAMP` | — | Waktu mulai eksekusi task. |
+| `finished_at` | `DateTime` | ✅ | `NULL` | — | Waktu selesai eksekusi task. |
+| `duration_ms` | `Integer` | ✅ | `NULL` | — | Total durasi pengerjaan dalam milidetik. |
+| `error_message` | `Text` | ✅ | `NULL` | — | Detail traceback / pesan error jika status FAILED. |
+| `created_at` | `DateTime` | ❌ | `CURRENT_TIMESTAMP` | — | Timestamp pencatatan record run. |
+
+**Relationships:**
+- `task` → **Many-to-One** ke `scheduler_tasks`
+
+**Indexes:**
+| Nama Index | Kolom | Tujuan |
+|:-----------|:------|:-------|
+| `idx_scheduler_runs_task_started` | `task_id`, `started_at` | Query riwayat run terbaru per task. |
+| `idx_scheduler_runs_status` | `status` | Filter audit error/kegagalan task. |
 
 ---
 
