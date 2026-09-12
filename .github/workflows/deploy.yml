@@ -144,7 +144,7 @@ jobs:
           echo "💓 Checking backend health..."
           sleep 6
           for i in {1..6}; do
-            if curl -s -f http://localhost:8000/health | grep -q "healthy"; then
+            if curl -s -f http://localhost:8000/health | grep -q "ok"; then
               echo "✅ Backend Health Check PASSED!"
               break
             fi
