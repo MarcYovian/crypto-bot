@@ -38,6 +38,8 @@ tags:
     description: Live simulation sandbox for 2.0% risk sizing, margin required, and liquidation price.
   - name: Bot Operations
     description: Bot heartbeat, Pause/Resume controls, and Emergency Panic Close.
+  - name: Scheduler & Cron Jobs
+    description: Database-driven recurring background tasks, live schedule adjustments, execution history, and downtime recovery.
   - name: Settings & Credentials
     description: Dynamic configuration parameters and Binance API key rotation.
   - name: Logs & Audit
@@ -608,6 +610,175 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+
+  # =========================================================================
+  # SCHEDULER & CRON JOBS
+  # =========================================================================
+  /api/v1/scheduler/tasks:
+    get:
+      tags: [Scheduler & Cron Jobs]
+      summary: List all registered scheduler tasks
+      description: Returns all recurring background tasks with current schedules, active status, last execution status, next execution date, and misfire policy.
+      parameters:
+        - name: is_active
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter tasks by active status
+      responses:
+        '200':
+          description: List of scheduler tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerTaskDTO'
+
+  /api/v1/scheduler/tasks/{task_id}:
+    get:
+      tags: [Scheduler & Cron Jobs]
+      summary: Get scheduler task detail
+      description: Fetch detailed configuration and recent execution runs for a specific scheduled task by its unique identifier.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique task ID (e.g. daily_risk_snapshot, cleanup_orphan_orders)
+      responses:
+        '200':
+          description: Scheduler task details with recent execution history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerTaskDetailDTO'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [Scheduler & Cron Jobs]
+      summary: Update task configuration, schedule, or active status
+      description: Dynamically update cron expression (rescheduling live in memory), toggle active/pause state, modify task name, or update misfire recovery policy.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique task ID to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchedulerTaskUpdateDTO'
+      responses:
+        '200':
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerTaskDTO'
+        '400':
+          description: Invalid cron expression or payload format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/scheduler/tasks/{task_id}/trigger:
+    post:
+      tags: [Scheduler & Cron Jobs]
+      summary: Manually trigger immediate execution of a task
+      description: Execute a scheduled job immediately on-demand without waiting for its scheduled cron time, recording execution results in the database.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique task ID to trigger
+      responses:
+        '200':
+          description: Immediate execution result summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerTaskTriggerResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/scheduler/tasks/{task_id}/runs:
+    get:
+      tags: [Scheduler & Cron Jobs]
+      summary: Get execution history logs for a task
+      description: Returns historical run audit logs including start time, completion time, duration, status (SUCCESS/FAILED), and result summary.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique task ID
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Maximum number of run records to retrieve
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [SUCCESS, FAILED]
+          description: Filter run records by execution status
+      responses:
+        '200':
+          description: Historical execution records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerTaskRunDTO'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/scheduler/recovery:
+    post:
+      tags: [Scheduler & Cron Jobs]
+      summary: Trigger manual downtime recovery check
+      description: Scans database for overdue tasks that were missed during server downtime and executes or skips them according to their MisfirePolicy.
+      responses:
+        '200':
+          description: Downtime recovery execution report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerRecoveryResponseDTO'
 
   # =========================================================================
   # SETTINGS & CREDENTIALS
@@ -1636,3 +1807,209 @@ components:
           type: string
           examples:
             - "RESOURCE_NOT_FOUND"
+
+    # =========================================================================
+    # SCHEDULER SCHEMAS
+    # =========================================================================
+    IntervalUnitEnum:
+      type: string
+      enum:
+        - MINUTES
+        - HOURS
+        - DAYS
+        - WEEKS
+        - MONTHS
+      description: Unit of time for human-friendly interval configuration.
+
+    MisfirePolicyEnum:
+      type: string
+      enum:
+        - RUN_LATEST_ONCE
+        - SKIP_TO_NEXT
+        - IMMEDIATE
+      description: Execution policy applied when a task was missed due to system downtime.
+
+    SchedulerTaskDTO:
+      type: object
+      required:
+        - id
+        - name
+        - cron_expr
+        - timezone
+        - is_active
+        - misfire_policy
+        - next_run_at
+        - last_status
+      properties:
+        id:
+          type: string
+          example: "daily_risk_snapshot"
+        name:
+          type: string
+          example: "Daily Risk Snapshot & Budgeting"
+        interval_value:
+          type: integer
+          nullable: true
+          description: Human-friendly interval duration number (e.g. 30 for 30 minutes, 1 for 1 day).
+          example: 1
+        interval_unit:
+          $ref: '#/components/schemas/IntervalUnitEnum'
+          nullable: true
+          description: Unit of time corresponding to interval_value.
+          example: DAYS
+        cron_human:
+          type: string
+          nullable: true
+          description: Plain human-readable summary of the schedule.
+          example: "Every day at 00:00 WIB"
+        cron_expr:
+          type: string
+          example: "0 0 * * *"
+        timezone:
+          type: string
+          example: "Asia/Jakarta"
+        is_active:
+          type: boolean
+          example: true
+        misfire_policy:
+          $ref: '#/components/schemas/MisfirePolicyEnum'
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-09-03T00:00:00+07:00"
+        next_run_at:
+          type: string
+          format: date-time
+          example: "2026-09-04T00:00:00+07:00"
+        last_status:
+          type: string
+          enum: [IDLE, RUNNING, SUCCESS, FAILED]
+          example: "SUCCESS"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-09-01T00:00:00+07:00"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-09-03T22:30:00+07:00"
+
+    SchedulerTaskUpdateDTO:
+      type: object
+      description: Payload for updating task metadata, cron schedule, status, or misfire recovery policy. Supports both human-friendly interval inputs (interval_value + interval_unit) and standard crontab expressions.
+      properties:
+        name:
+          type: string
+          example: "High Frequency Orphan Cleaner"
+        interval_value:
+          type: integer
+          description: Human-friendly duration number (e.g. 15, 30, 1). If provided with interval_unit, backend auto-generates cron_expr.
+          example: 30
+        interval_unit:
+          $ref: '#/components/schemas/IntervalUnitEnum'
+          description: Time unit for interval_value (MINUTES, HOURS, DAYS, WEEKS, MONTHS).
+          example: MINUTES
+        cron_expr:
+          type: string
+          description: Standard 5-part crontab expression (e.g. '*/30 * * * *'). Optional if interval_value + interval_unit is provided.
+          example: "*/30 * * * *"
+        is_active:
+          type: boolean
+          description: Toggle active or paused state
+          example: true
+        misfire_policy:
+          $ref: '#/components/schemas/MisfirePolicyEnum'
+        timezone:
+          type: string
+          example: "Asia/Jakarta"
+
+    SchedulerTaskRunDTO:
+      type: object
+      required:
+        - id
+        - task_id
+        - started_at
+        - status
+      properties:
+        id:
+          type: integer
+          example: 1042
+        task_id:
+          type: string
+          example: "daily_risk_snapshot"
+        started_at:
+          type: string
+          format: date-time
+          example: "2026-09-03T00:00:00+07:00"
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-09-03T00:00:02+07:00"
+        duration_ms:
+          type: integer
+          nullable: true
+          example: 2150
+        status:
+          type: string
+          enum: [SUCCESS, FAILED]
+          example: "SUCCESS"
+        result_summary:
+          type: string
+          nullable: true
+          example: '{"snapshot_id": 42, "starting_balance": 5000.0}'
+        error_message:
+          type: string
+          nullable: true
+          example: null
+
+    SchedulerTaskDetailDTO:
+      allOf:
+        - $ref: '#/components/schemas/SchedulerTaskDTO'
+        - type: object
+          properties:
+            recent_runs:
+              type: array
+              items:
+                $ref: '#/components/schemas/SchedulerTaskRunDTO'
+
+    SchedulerTaskTriggerResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          example: "failsafe_sync_check"
+        status:
+          type: string
+          example: "SUCCESS"
+        started_at:
+          type: string
+          format: date-time
+          example: "2026-09-03T22:35:00+07:00"
+        duration_ms:
+          type: integer
+          example: 430
+        result:
+          type: object
+          example:
+            synced_trades: 2
+            desynced_trades: 0
+            total_checked: 2
+
+    SchedulerRecoveryResponseDTO:
+      type: object
+      properties:
+        overdue_count:
+          type: integer
+          example: 1
+        recovered:
+          type: array
+          items:
+            type: string
+          example: ["daily_risk_snapshot"]
+        skipped:
+          type: array
+          items:
+            type: string
+          example: ["heartbeat_health_check"]

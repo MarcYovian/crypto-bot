@@ -1007,3 +1007,51 @@ class IExchangeRepository(ABC):
     @abstractmethod
     async def update(self, db_obj: Any, schema: Any) -> Any:
         ...
+
+
+class ISchedulerTaskRepository(ABC):
+    """Abstract Port for database-driven cron tasks, scheduling state, and execution history."""
+
+    @abstractmethod
+    async def get(self, task_id: str) -> Optional[Any]:
+        """Fetch task configuration and state by unique task_id."""
+        ...
+
+    @abstractmethod
+    async def get_all(self, is_active: Optional[bool] = None) -> List[Any]:
+        """Fetch all registered scheduler tasks, optionally filtered by active status."""
+        ...
+
+    @abstractmethod
+    async def get_overdue_tasks(self, reference_time: datetime) -> List[Any]:
+        """Fetch active tasks where next_run_at <= reference_time."""
+        ...
+
+    @abstractmethod
+    async def upsert_task(
+        self,
+        task_id: str,
+        name: str,
+        cron_expr: str,
+        misfire_policy: Any,
+        timezone: str = "Asia/Jakarta",
+        is_active: bool = True,
+        next_run_at: Optional[datetime] = None,
+    ) -> Any:
+        """Create or update a scheduler task definition."""
+        ...
+
+    @abstractmethod
+    async def record_task_run(
+        self,
+        task_id: str,
+        started_at: datetime,
+        finished_at: datetime,
+        status: str,
+        next_run_at: Optional[datetime] = None,
+        duration_ms: Optional[int] = None,
+        result_summary: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> Any:
+        """Record an execution log entry and advance the task's next_run_at timestamp."""
+        ...

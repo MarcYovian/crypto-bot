@@ -23,7 +23,7 @@ class BinanceValidator:
     @staticmethod
     def validate_leverage(leverage: Union[int, Leverage]) -> int:
         """Validate leverage bracket bounds."""
-        lev_val = leverage.value if isinstance(leverage, Leverage) else int(leverage)
+        lev_val = leverage.value if isinstance(leverage, Leverage) else leverage
         if lev_val < 1 or lev_val > 125:
             raise ValueError(f"Invalid leverage '{lev_val}'. Must be between 1x and 125x.")
         return lev_val

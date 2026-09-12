@@ -29,6 +29,7 @@ from src.application.use_cases.bot import (
     GetSettingsUseCase,
     UpdateSettingsUseCase,
     SaveCredentialsUseCase,
+    CheckSystemHeartbeatUseCase,
 )
 from src.application.use_cases.analytics import (
     GetDashboardSummaryUseCase,
@@ -57,9 +58,11 @@ from src.application.use_cases.strategies import (
 )
 from src.application.use_cases.reports import (
     ExportTradesCsvUseCase,
+    SendDailyPerformanceReportUseCase,
 )
 from src.application.use_cases.logs import (
     GetLogsUseCase,
+    PurgeOldLogsUseCase,
 )
 
 __all__ = [
@@ -88,6 +91,7 @@ __all__ = [
     "GetSettingsUseCase",
     "UpdateSettingsUseCase",
     "SaveCredentialsUseCase",
+    "CheckSystemHeartbeatUseCase",
     # Analytics
     "GetDashboardSummaryUseCase",
     "GetEquityCurveUseCase",
@@ -109,6 +113,8 @@ __all__ = [
     "UpdateStrategyUseCase",
     # Reports
     "ExportTradesCsvUseCase",
+    "SendDailyPerformanceReportUseCase",
     # Logs
     "GetLogsUseCase",
+    "PurgeOldLogsUseCase",
 ]
